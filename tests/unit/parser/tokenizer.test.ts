@@ -292,3 +292,46 @@ describe('Story 1.3: Control Symbols & Escape Sequences', () => {
     expect(tokens[2]).toMatchObject({ type: 'text', value: '}' });
   });
 });
+
+describe('Story 1.5: Unicode Character Support', () => {
+  it('should handle basic Unicode character', () => {
+    const tokens = tokenize('\\u1234?');
+    // RTF \u1234 is decimal 1234, not hex 0x1234
+    expect(tokens.some((t) => t.type === 'text' && t.value === String.fromCharCode(1234))).toBe(
+      true
+    );
+  });
+
+  it('should handle Unicode with alternate representation', () => {
+    const tokens = tokenize('\\u8364?'); // € sign
+    expect(tokens.some((t) => t.type === 'text' && t.value === '€')).toBe(true);
+  });
+
+  it('should handle negative Unicode values', () => {
+    const tokens = tokenize('\\u-10179?');
+    // Negative values represent surrogate pairs or special handling
+    expect(tokens).toHaveLength(1);
+  });
+
+  it('should skip alternate character after Unicode', () => {
+    const tokens = tokenize('\\u8364?test');
+    // Should have € and "test", but not "?"
+    const values = tokens.filter((t) => t.type === 'text').map((t) => t.value);
+    expect(values).toContain('€');
+    expect(values).toContain('test');
+  });
+
+  it('should handle multiple Unicode characters', () => {
+    const tokens = tokenize('\\u20320?\\u22909?'); // 你好 in Unicode
+    const textTokens = tokens.filter((t) => t.type === 'text');
+    expect(textTokens.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('should handle Unicode in context with text', () => {
+    const tokens = tokenize('Hello\\u8364?World');
+    const values = tokens.filter((t) => t.type === 'text').map((t) => t.value);
+    expect(values).toContain('Hello');
+    expect(values).toContain('€');
+    expect(values).toContain('World');
+  });
+});

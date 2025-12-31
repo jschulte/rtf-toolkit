@@ -221,7 +221,35 @@ export function tokenize(rtf: string): Token[] {
 
       // Check if it's a control word (starts with alphabetic character)
       if (/[a-zA-Z]/.test(nextChar)) {
-        tokens.push(scanner.scanControlWord());
+        const controlWord = scanner.scanControlWord();
+
+        // Special handling for \u (Unicode character)
+        if (controlWord.name === 'u' && controlWord.param !== null) {
+          // Convert Unicode code point to character
+          let charCode = controlWord.param;
+
+          // Handle negative values (treat as unsigned 16-bit)
+          if (charCode < 0) {
+            charCode = 65536 + charCode;
+          }
+
+          const unicodeChar = String.fromCharCode(charCode);
+
+          // Add as text token
+          tokens.push({
+            type: 'text',
+            value: unicodeChar,
+            pos: controlWord.pos,
+            position: controlWord.position,
+          });
+
+          // Skip the alternate representation character (usually '?')
+          if (!scanner.isEOF()) {
+            scanner.advance();
+          }
+        } else {
+          tokens.push(controlWord);
+        }
       }
       // Check if it's a hex escape (\'XX)
       else if (nextChar === "'") {
