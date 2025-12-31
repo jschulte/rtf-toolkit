@@ -15,6 +15,11 @@ export interface RGBColor {
   b: number;
 }
 
+export interface RevisionAuthor {
+  index: number;
+  name: string;
+}
+
 export interface CharacterFormatting {
   bold?: boolean;
   italic?: boolean;
@@ -42,11 +47,21 @@ export interface TextNode {
 
 export interface ParagraphNode {
   type: 'paragraph';
-  content: TextNode[];
+  content: InlineNode[];
   formatting: ParagraphFormatting;
 }
 
-export type RTFNode = ParagraphNode | TextNode;
+export interface RevisionNode {
+  type: 'revision';
+  revisionType: 'insertion' | 'deletion' | 'formatting';
+  content: InlineNode[];
+  author?: number;
+  timestamp?: number;
+  formatting?: CharacterFormatting;
+}
+
+export type InlineNode = TextNode | RevisionNode;
+export type RTFNode = ParagraphNode | TextNode | RevisionNode;
 
 export interface RTFDocument {
   type: 'document';
@@ -56,6 +71,7 @@ export interface RTFDocument {
   fontTable: FontDescriptor[];
   colorTable: RGBColor[];
   stylesheetTable: any[];
-  revisionTable: any[];
+  revisionTable: RevisionAuthor[];
   content: RTFNode[];
+  hasRevisions?: boolean;
 }

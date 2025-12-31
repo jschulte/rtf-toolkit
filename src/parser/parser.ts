@@ -7,8 +7,11 @@ import type {
   RTFDocument,
   FontDescriptor,
   RGBColor,
+  RevisionAuthor,
   ParagraphNode,
   TextNode,
+  RevisionNode,
+  InlineNode,
   CharacterFormatting,
   ParagraphFormatting,
 } from './ast-simple.js';
@@ -147,7 +150,7 @@ class Parser {
    * Parse document content (header + body)
    */
   private parseDocumentContent(doc: RTFDocument): void {
-    let currentParagraph: TextNode[] = [];
+    let currentParagraph: InlineNode[] = [];
 
     while (!this.isEOF() && !this.match('groupEnd')) {
       const token = this.peek();
@@ -193,6 +196,19 @@ class Parser {
         this.advance(); // consume {
         const nextToken = this.peek();
 
+        // Check for ignorable destination ({\* ...})
+        if (nextToken?.type === 'text' && nextToken.value === '*') {
+          this.advance(); // Skip the * text token
+          const destToken = this.peek();
+          if (destToken?.type === 'controlWord' && destToken.name === 'revtbl') {
+            this.parseRevisionTable(doc);
+            continue;
+          }
+          // Other ignorable destinations - skip
+          this.skipGroup();
+          continue;
+        }
+
         if (nextToken?.type === 'controlWord') {
           const { name } = nextToken;
 
@@ -202,9 +218,17 @@ class Parser {
           } else if (name === 'colortbl') {
             this.parseColorTable(doc);
             continue;
-          } else if (name?.startsWith('*')) {
-            // Ignore destination (*\...) groups
-            this.skipGroup();
+          } else if (name === 'revised' || name === 'deleted') {
+            // Revision group - parse it
+            const revisionNode = this.parseRevisionGroup(name);
+            if (revisionNode) {
+              currentParagraph.push(revisionNode);
+              doc.hasRevisions = true;
+            }
+            // Consume the closing brace
+            if (!this.isEOF() && this.match('groupEnd')) {
+              this.advance();
+            }
             continue;
           }
         }
@@ -242,8 +266,8 @@ class Parser {
   /**
    * Parse content within a group
    */
-  private parseContentGroup(): TextNode[] {
-    const nodes: TextNode[] = [];
+  private parseContentGroup(): InlineNode[] {
+    const nodes: InlineNode[] = [];
 
     while (!this.isEOF() && !this.match('groupEnd')) {
       const token = this.peek();
@@ -282,7 +306,7 @@ class Parser {
   /**
    * Create paragraph node
    */
-  private createParagraph(content: TextNode[]): ParagraphNode {
+  private createParagraph(content: InlineNode[]): ParagraphNode {
     const formatting: ParagraphFormatting = {};
 
     if (this.paragraphState.alignment) {
@@ -569,6 +593,107 @@ class Parser {
     }
 
     this.expect('groupEnd');
+  }
+
+  /**
+   * Parse revision table ({\*\revtbl ...})
+   */
+  private parseRevisionTable(doc: RTFDocument): void {
+    this.advance(); // Skip \revtbl (we already consumed \*)
+
+    let authorIndex = 0;
+
+    while (!this.isEOF() && !this.match('groupEnd')) {
+      if (this.match('groupStart')) {
+        this.expect('groupStart');
+
+        let authorName = '';
+
+        // Collect author name (ends with semicolon)
+        while (!this.isEOF() && !this.match('groupEnd')) {
+          const token = this.advance();
+
+          if (token?.type === 'text') {
+            authorName += token.value || '';
+          }
+        }
+
+        this.expect('groupEnd');
+
+        // Clean up author name
+        authorName = authorName.replace(/;$/, '').trim();
+
+        if (authorName) {
+          doc.revisionTable.push({
+            index: authorIndex++,
+            name: authorName,
+          });
+        }
+      } else {
+        this.advance();
+      }
+    }
+
+    this.expect('groupEnd'); // Close revision table group
+  }
+
+  /**
+   * Parse revision group ({\revised ...} or {\deleted ...})
+   */
+  private parseRevisionGroup(revisionType: string): RevisionNode | null {
+    this.advance(); // Skip \revised or \deleted
+
+    let author: number | undefined;
+    let timestamp: number | undefined;
+    const revContent: InlineNode[] = [];
+
+    // Parse revision metadata and content
+    while (!this.isEOF() && !this.match('groupEnd')) {
+      const token = this.peek();
+
+      if (token?.type === 'controlWord') {
+        const { name, param } = token;
+
+        if (name === 'revauth' && param !== null) {
+          author = param;
+          this.advance();
+        } else if (name === 'revdttm' && param !== null) {
+          timestamp = param;
+          this.advance();
+        } else if (this.isFormattingControlWord(name)) {
+          this.parseFormattingControlWord();
+        } else {
+          this.advance();
+        }
+      } else if (token?.type === 'groupStart') {
+        this.advance();
+        this.pushFormatting();
+
+        const groupContent = this.parseContentGroup();
+        revContent.push(...groupContent);
+
+        this.popFormatting();
+
+        if (!this.isEOF() && this.match('groupEnd')) {
+          this.advance();
+        }
+      } else if (token?.type === 'text') {
+        revContent.push(this.createTextNode(String(token.value || '')));
+        this.advance();
+      } else {
+        this.advance();
+      }
+    }
+
+    const node: RevisionNode = {
+      type: 'revision',
+      revisionType: revisionType === 'revised' ? 'insertion' : 'deletion',
+      content: revContent,
+      author,
+      timestamp,
+    };
+
+    return node;
   }
 }
 

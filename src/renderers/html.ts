@@ -8,6 +8,8 @@ import type {
   RTFNode,
   ParagraphNode,
   TextNode,
+  RevisionNode,
+  InlineNode,
   CharacterFormatting,
   ParagraphFormatting,
 } from '../parser/ast-simple.js';
@@ -105,6 +107,18 @@ function buildParagraphStyle(formatting: ParagraphFormatting): string {
 }
 
 /**
+ * Render inline node (text or revision)
+ */
+function renderInlineNode(node: InlineNode, doc: RTFDocument): string {
+  if (node.type === 'text') {
+    return renderTextNode(node, doc);
+  } else if (node.type === 'revision') {
+    return renderRevisionNode(node, doc);
+  }
+  return '';
+}
+
+/**
  * Render text node with formatting
  */
 function renderTextNode(node: TextNode, doc: RTFDocument): string {
@@ -133,10 +147,46 @@ function renderTextNode(node: TextNode, doc: RTFDocument): string {
 }
 
 /**
+ * Render revision node with track changes visualization
+ */
+function renderRevisionNode(node: RevisionNode, doc: RTFDocument): string {
+  // Render the content
+  const content = node.content.map((child) => renderInlineNode(child, doc)).join('');
+
+  // Get author name
+  const authorIndex = node.author !== undefined ? node.author : 0;
+  const authorName =
+    authorIndex < doc.revisionTable.length ? doc.revisionTable[authorIndex].name : 'Unknown';
+
+  // Build data attributes
+  const dataAttrs = [
+    `data-revision-type="${node.revisionType}"`,
+    `data-author="${escapeHTML(authorName)}"`,
+    `data-author-index="${authorIndex}"`,
+  ];
+
+  if (node.timestamp !== undefined) {
+    const date = new Date(node.timestamp * 60000);
+    dataAttrs.push(`data-timestamp="${date.toISOString()}"`);
+  }
+
+  // Apply CSS class based on revision type
+  const cssClass = node.revisionType === 'insertion' ? 'rtf-revision-inserted' : 'rtf-revision-deleted';
+
+  // Build style for visual distinction
+  const style =
+    node.revisionType === 'insertion'
+      ? 'background-color: #d4edda; border-bottom: 2px solid #28a745;'
+      : 'background-color: #f8d7da; text-decoration: line-through; border-bottom: 2px solid #dc3545;';
+
+  return `<span class="${cssClass}" style="${style}" ${dataAttrs.join(' ')}>${content}</span>`;
+}
+
+/**
  * Render paragraph node
  */
 function renderParagraphNode(node: ParagraphNode, doc: RTFDocument): string {
-  const content = node.content.map((child) => renderTextNode(child, doc)).join('');
+  const content = node.content.map((child) => renderInlineNode(child, doc)).join('');
 
   const inlineStyle = buildParagraphStyle(node.formatting);
   const styleAttr = inlineStyle ? ` style="${inlineStyle}"` : '';
