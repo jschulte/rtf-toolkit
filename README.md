@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/tests-94%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-119%20passing-brightgreen.svg)]()
 
 A production-grade RTF parsing library for JavaScript/TypeScript with comprehensive track changes support. Perfect for government contracts, legal documents, and any application requiring RTF document analysis.
 
