@@ -1,8 +1,8 @@
-# @usmax/rtf-toolkit
+# @jonahschulte/rtf-toolkit
 
 > Modern TypeScript RTF parser with track changes support - Built to RTF 1.9.1 spec
 
-[![npm version](https://img.shields.io/npm/v/@usmax/rtf-toolkit.svg)](https://www.npmjs.com/package/@usmax/rtf-toolkit)
+[![npm version](https://img.shields.io/npm/v/@jonahschulte/rtf-toolkit.svg)](https://www.npmjs.com/package/@jonahschulte/rtf-toolkit)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue.svg)](https://www.typescriptlang.org/)
 [![Test Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
@@ -30,13 +30,13 @@ This library provides:
 ## Installation
 
 ```bash
-npm install @usmax/rtf-toolkit
+npm install @jonahschulte/rtf-toolkit
 
 # or
-pnpm add @usmax/rtf-toolkit
+pnpm add @jonahschulte/rtf-toolkit
 
 # or
-yarn add @usmax/rtf-toolkit
+yarn add @jonahschulte/rtf-toolkit
 ```
 
 ## Quick Start
@@ -44,7 +44,7 @@ yarn add @usmax/rtf-toolkit
 ### Parse RTF to HTML
 
 ```typescript
-import { parseRTF, toHTML } from '@usmax/rtf-toolkit';
+import { parseRTF, toHTML } from '@jonahschulte/rtf-toolkit';
 
 const rtfString = '{\\rtf1\\ansi\\b Hello World\\b0}';
 const doc = parseRTF(rtfString);
@@ -56,7 +56,7 @@ console.log(html); // <p><strong>Hello World</strong></p>
 ### Convert HTML to RTF
 
 ```typescript
-import { fromHTML } from '@usmax/rtf-toolkit';
+import { fromHTML } from '@jonahschulte/rtf-toolkit';
 
 const html = '<p><strong>Hello World</strong></p>';
 const doc = fromHTML(html);
@@ -68,7 +68,7 @@ console.log(rtf); // {\\rtf1\\ansi\\b Hello World\\b0}
 ### Handle Track Changes
 
 ```typescript
-import { parseRTF, getTrackChanges } from '@usmax/rtf-toolkit';
+import { parseRTF, getTrackChanges } from '@jonahschulte/rtf-toolkit';
 
 const rtfWithChanges = readRTFFile('document-with-redlines.rtf');
 const doc = parseRTF(rtfWithChanges);
@@ -88,7 +88,7 @@ const cleanRTF = cleanDoc.toRTF();
 ### React Components
 
 ```tsx
-import { TrackChangesViewer } from '@usmax/rtf-toolkit/react';
+import { TrackChangesViewer } from '@jonahschulte/rtf-toolkit/react';
 
 function DocumentReview() {
   const [rtfContent, setRTFContent] = useState(rtfString);
@@ -239,9 +239,11 @@ MIT License - see [LICENSE](./LICENSE)
 
 ## Credits
 
-Built by [USmax](https://usmax.com) to solve real-world government contract NDA management needs.
+Built by [Jonah Schulte](https://github.com/jonahschulte) to solve real-world government contract NDA management needs.
 
 Inspired by the limitations of existing RTF libraries and the need for modern, spec-compliant RTF handling in JavaScript.
+
+Open-sourced to help the community deal with legacy RTF systems.
 
 ## Acknowledgments
 
@@ -253,4 +255,4 @@ Inspired by the limitations of existing RTF libraries and the need for modern, s
 
 **Star this repo** if you find it useful! ⭐
 
-**Report issues** or request features on [GitHub Issues](https://github.com/usmax/rtf-toolkit/issues).
+**Report issues** or request features on [GitHub Issues](https://github.com/jonahschulte/rtf-toolkit/issues).

@@ -1,4 +1,4 @@
-# @usmax/rtf-toolkit Implementation Plan
+# @jonahschulte/rtf-toolkit Implementation Plan
 
 **Goal:** Build a production-quality, spec-compliant RTF parsing library with track changes support
 
@@ -230,7 +230,7 @@ const changes = getTrackChanges(doc);
   - Run tests on PR
   - Auto-publish to npm on tag
   - Coverage reporting
-- [ ] npm publish (scoped package @usmax/rtf-toolkit)
+- [ ] npm publish (scoped package @jonahschulte/rtf-toolkit)
 - [ ] Create GitHub release with notes
 - [ ] Announce on Twitter, Reddit (r/javascript, r/typescript)
 - [ ] Add to awesome-typescript, awesome-parsers lists
@@ -243,7 +243,7 @@ const changes = getTrackChanges(doc);
 
 1. **Replace old RTF handling** (Day 1)
    - Remove `@iarna/rtf-to-html`
-   - Add `@usmax/rtf-toolkit` dependency
+   - Add `@jonahschulte/rtf-toolkit` dependency
    - Update templateService.ts to use new library
 
 2. **Enable WYSIWYG editing** (Day 2)
@@ -353,4 +353,4 @@ const changes = getTrackChanges(doc);
 
 ---
 
-**This plan positions @usmax/rtf-toolkit to become the de-facto RTF library for modern JavaScript applications.**
+**This plan positions @jonahschulte/rtf-toolkit to become the de-facto RTF library for modern JavaScript applications.**

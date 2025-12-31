@@ -1,5 +1,5 @@
 {
-  "name": "@usmax/rtf-toolkit",
+  "name": "@jonahschulte/rtf-toolkit",
   "version": "0.1.0",
   "description": "Modern TypeScript RTF parser with track changes support - Full RTF 1.9.1 spec compliance",
   "keywords": [
@@ -14,7 +14,7 @@
     "wysiwyg",
     "typescript"
   ],
-  "author": "USmax",
+  "author": "Jonah Schulte",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -67,10 +67,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/usmax/rtf-toolkit.git"
+    "url": "https://github.com/jonahschulte/rtf-toolkit.git"
   },
   "bugs": {
-    "url": "https://github.com/usmax/rtf-toolkit/issues"
+    "url": "https://github.com/jonahschulte/rtf-toolkit/issues"
   },
-  "homepage": "https://github.com/usmax/rtf-toolkit#readme"
+  "homepage": "https://github.com/jonahschulte/rtf-toolkit#readme"
 }
