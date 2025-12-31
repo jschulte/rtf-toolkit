@@ -1,6 +1,6 @@
 {
   "name": "@jonahschulte/rtf-toolkit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Modern TypeScript RTF parser with track changes support - Full RTF 1.9.1 spec compliance",
   "keywords": [
     "rtf",
