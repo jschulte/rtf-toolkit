@@ -130,6 +130,75 @@ class Scanner {
       position,
     };
   }
+
+  /**
+   * Scan a hex escape (\\'XX)
+   */
+  scanHexEscape(): Token {
+    const startPos = this.pos - 2; // -2 because we already consumed \ and '
+    const position = this.getPosition();
+
+    // Read two hex digits
+    let hexStr = '';
+    for (let i = 0; i < 2 && !this.isEOF(); i++) {
+      const char = this.peek();
+      if (/[0-9a-fA-F]/.test(char)) {
+        hexStr += this.advance();
+      } else {
+        break;
+      }
+    }
+
+    // Convert hex to character
+    const charCode = parseInt(hexStr, 16);
+    const value = String.fromCharCode(charCode);
+
+    return {
+      type: 'text',
+      value,
+      pos: startPos,
+      position,
+    };
+  }
+
+  /**
+   * Scan a control symbol (\~, \-, \_, \\, \{, \})
+   */
+  scanControlSymbol(symbol: string, backslashPos: number): Token {
+    const startPos = backslashPos;
+    const position = this.getPosition();
+
+    // Map symbols to their meanings
+    const symbolMap: Record<string, string> = {
+      '~': '\u00A0', // non-breaking space
+      '-': '\u00AD', // optional (soft) hyphen
+      _: '\u2011', // non-breaking hyphen
+      '\\': '\\', // escaped backslash
+      '{': '{', // escaped opening brace
+      '}': '}', // escaped closing brace
+    };
+
+    const value = symbolMap[symbol] || symbol;
+
+    // For literal escapes (\\, \{, \}), return as text
+    if (['\\', '{', '}'].includes(symbol)) {
+      return {
+        type: 'text',
+        value,
+        pos: startPos,
+        position,
+      };
+    }
+
+    // For special symbols, return as controlSymbol
+    return {
+      type: 'controlSymbol',
+      name: symbol,
+      value,
+      pos: startPos,
+      position,
+    };
+  }
 }
 
 /**
@@ -146,6 +215,7 @@ export function tokenize(rtf: string): Token[] {
     const char = scanner.peek();
 
     if (char === '\\') {
+      const backslashPos = scanner.pos; // Save position before consuming backslash
       scanner.advance(); // Consume backslash
       const nextChar = scanner.peek();
 
@@ -153,7 +223,16 @@ export function tokenize(rtf: string): Token[] {
       if (/[a-zA-Z]/.test(nextChar)) {
         tokens.push(scanner.scanControlWord());
       }
-      // TODO: Handle control symbols in Story 1.3
+      // Check if it's a hex escape (\'XX)
+      else if (nextChar === "'") {
+        scanner.advance(); // Consume the apostrophe
+        tokens.push(scanner.scanHexEscape());
+      }
+      // Check if it's a control symbol
+      else if (['~', '-', '_', '\\', '{', '}'].includes(nextChar)) {
+        const symbol = scanner.advance();
+        tokens.push(scanner.scanControlSymbol(symbol, backslashPos));
+      }
     } else if (char === '{') {
       // Handle group start
       const startPos = scanner.pos;

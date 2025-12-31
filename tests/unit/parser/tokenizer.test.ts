@@ -166,3 +166,129 @@ describe('Story 1.2: Group Delimiters', () => {
     expect(ends).toBe(3);
   });
 });
+
+describe('Story 1.3: Control Symbols & Escape Sequences', () => {
+  it('should handle hex escape for ASCII character', () => {
+    const tokens = tokenize("\\'41");
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toMatchObject({
+      type: 'text',
+      value: 'A',
+    });
+  });
+
+  it('should handle hex escape for extended ASCII', () => {
+    const tokens = tokenize("\\'e9");
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toMatchObject({
+      type: 'text',
+      value: 'é',
+    });
+  });
+
+  it('should handle lowercase hex codes', () => {
+    const tokens = tokenize("\\'61");
+    expect(tokens[0]).toMatchObject({
+      type: 'text',
+      value: 'a',
+    });
+  });
+
+  it('should handle uppercase hex codes', () => {
+    const tokens = tokenize("\\'4A");
+    expect(tokens[0]).toMatchObject({
+      type: 'text',
+      value: 'J',
+    });
+  });
+
+  it('should handle non-breaking space symbol', () => {
+    const tokens = tokenize('\\~');
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toMatchObject({
+      type: 'controlSymbol',
+      name: '~',
+      value: '\u00A0', // non-breaking space
+    });
+  });
+
+  it('should handle optional hyphen symbol', () => {
+    const tokens = tokenize('\\-');
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toMatchObject({
+      type: 'controlSymbol',
+      name: '-',
+      value: '\u00AD', // soft hyphen
+    });
+  });
+
+  it('should handle non-breaking hyphen symbol', () => {
+    const tokens = tokenize('\\_');
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toMatchObject({
+      type: 'controlSymbol',
+      name: '_',
+      value: '\u2011', // non-breaking hyphen
+    });
+  });
+
+  it('should handle escaped backslash', () => {
+    const tokens = tokenize('\\\\');
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toMatchObject({
+      type: 'text',
+      value: '\\',
+    });
+  });
+
+  it('should handle escaped opening brace', () => {
+    const tokens = tokenize('\\{');
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toMatchObject({
+      type: 'text',
+      value: '{',
+    });
+  });
+
+  it('should handle escaped closing brace', () => {
+    const tokens = tokenize('\\}');
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toMatchObject({
+      type: 'text',
+      value: '}',
+    });
+  });
+
+  it('should handle multiple hex escapes in sequence', () => {
+    const tokens = tokenize("\\'48\\'65\\'6c\\'6c\\'6f"); // "Hello"
+    expect(tokens).toHaveLength(5);
+    expect(tokens.map((t) => t.value).join('')).toBe('Hello');
+  });
+
+  it('should handle hex escapes within text', () => {
+    const tokens = tokenize("Hello\\'20World");
+    expect(tokens).toHaveLength(3);
+    expect(tokens[0]).toMatchObject({ type: 'text', value: 'Hello' });
+    expect(tokens[1]).toMatchObject({ type: 'text', value: ' ' });
+    expect(tokens[2]).toMatchObject({ type: 'text', value: 'World' });
+  });
+
+  it('should handle special symbols in context', () => {
+    const tokens = tokenize('word\\~hyphen');
+    expect(tokens.some((t) => t.type === 'controlSymbol' && t.name === '~')).toBe(true);
+  });
+
+  it('should preserve position information for control symbols', () => {
+    const tokens = tokenize('\\~');
+    expect(tokens[0]).toHaveProperty('pos');
+    expect(tokens[0].pos).toBe(0);
+  });
+
+  it('should handle mixed escape types', () => {
+    const tokens = tokenize("\\{\\'41\\}");
+    expect(tokens).toHaveLength(3);
+    expect(tokens[0]).toMatchObject({ type: 'text', value: '{' });
+    expect(tokens[1]).toMatchObject({ type: 'text', value: 'A' });
+    expect(tokens[2]).toMatchObject({ type: 'text', value: '}' });
+  });
+});
