@@ -26,6 +26,7 @@ export { parseRTF } from './parser/parser.js';
 // Renderers
 export { toHTML } from './renderers/html.js';
 export type { HTMLOptions } from './renderers/html.js';
+export { convertHTMLToRTF } from './renderers/rtf.js';
 
 // Track Changes API
 export {
