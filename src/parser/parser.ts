@@ -3,8 +3,41 @@
  * Converts token stream to Abstract Syntax Tree
  */
 
-import type { RTFDocument, FontDescriptor, RGBColor } from './ast.js';
+import type {
+  RTFDocument,
+  FontDescriptor,
+  RGBColor,
+  ParagraphNode,
+  TextNode,
+  CharacterFormatting,
+  ParagraphFormatting,
+} from './ast.js';
 import { tokenize, Token } from './tokenizer.js';
+
+/**
+ * Formatting state for tracking character properties
+ */
+interface FormattingState {
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  fontSize?: number;
+  font?: number;
+  foregroundColor?: number;
+  backgroundColor?: number;
+}
+
+/**
+ * Paragraph state for tracking paragraph properties
+ */
+interface ParagraphState {
+  alignment?: 'left' | 'center' | 'right' | 'justify';
+  spaceBefore?: number;
+  spaceAfter?: number;
+  leftIndent?: number;
+  rightIndent?: number;
+  firstLineIndent?: number;
+}
 
 /**
  * Parser class for building AST from tokens
@@ -12,6 +45,8 @@ import { tokenize, Token } from './tokenizer.js';
 class Parser {
   private tokens: Token[];
   private pos = 0;
+  private formattingStack: FormattingState[] = [{}];
+  private paragraphState: ParagraphState = {};
 
   constructor(tokens: Token[]) {
     this.tokens = tokens;
@@ -58,6 +93,29 @@ class Parser {
   }
 
   /**
+   * Get current formatting state
+   */
+  private getCurrentFormatting(): FormattingState {
+    return { ...this.formattingStack[this.formattingStack.length - 1] };
+  }
+
+  /**
+   * Push new formatting state
+   */
+  private pushFormatting(): void {
+    this.formattingStack.push(this.getCurrentFormatting());
+  }
+
+  /**
+   * Pop formatting state
+   */
+  private popFormatting(): void {
+    if (this.formattingStack.length > 1) {
+      this.formattingStack.pop();
+    }
+  }
+
+  /**
    * Parse complete RTF document
    */
   parseDocument(): RTFDocument {
@@ -74,22 +132,10 @@ class Parser {
       content: [],
     };
 
-    // Parse document content until closing }
-    while (!this.isEOF() && !this.match('groupEnd')) {
-      const token = this.peek();
+    // Parse document until closing }
+    this.parseDocumentContent(doc);
 
-      if (token?.type === 'controlWord') {
-        this.parseControlWord(doc);
-      } else if (token?.type === 'groupStart') {
-        this.parseGroup(doc);
-      } else if (token?.type === 'text') {
-        // Content text - will be handled in Phase 2
-        this.advance();
-      } else {
-        this.advance(); // Skip unknown tokens
-      }
-    }
-
+    // If there's accumulated content, create final paragraph
     if (!this.isEOF()) {
       this.expect('groupEnd'); // Closing }
     }
@@ -98,9 +144,226 @@ class Parser {
   }
 
   /**
-   * Parse control word and update document
+   * Parse document content (header + body)
    */
-  private parseControlWord(doc: RTFDocument): void {
+  private parseDocumentContent(doc: RTFDocument): void {
+    let currentParagraph: TextNode[] = [];
+
+    while (!this.isEOF() && !this.match('groupEnd')) {
+      const token = this.peek();
+
+      if (token?.type === 'controlWord') {
+        const { name, param } = token;
+
+        // Check for paragraph break
+        if (name === 'par' || name === 'line') {
+          this.advance();
+
+          // Create paragraph from accumulated content
+          if (currentParagraph.length > 0 || name === 'par') {
+            doc.content.push(this.createParagraph(currentParagraph));
+            currentParagraph = [];
+            this.paragraphState = {};
+          }
+          continue;
+        }
+
+        // Handle header control words
+        if (this.isHeaderControlWord(name)) {
+          this.parseHeaderControlWord(doc);
+          continue;
+        }
+
+        // Handle formatting control words
+        if (this.isFormattingControlWord(name)) {
+          this.parseFormattingControlWord();
+          continue;
+        }
+
+        // Handle paragraph formatting
+        if (this.isParagraphControlWord(name)) {
+          this.parseParagraphControlWord();
+          continue;
+        }
+
+        // Unknown control word - skip it
+        this.advance();
+      } else if (token?.type === 'groupStart') {
+        // Check if destination group
+        this.advance(); // consume {
+        const nextToken = this.peek();
+
+        if (nextToken?.type === 'controlWord') {
+          const { name } = nextToken;
+
+          if (name === 'fonttbl') {
+            this.parseFontTable(doc);
+            continue;
+          } else if (name === 'colortbl') {
+            this.parseColorTable(doc);
+            continue;
+          } else if (name?.startsWith('*')) {
+            // Ignore destination (*\...) groups
+            this.skipGroup();
+            continue;
+          }
+        }
+
+        // Regular formatting group - push state and parse content
+        this.pushFormatting();
+        const savedParaState = { ...this.paragraphState };
+
+        // Parse group content
+        const groupContent = this.parseContentGroup();
+        currentParagraph.push(...groupContent);
+
+        this.popFormatting();
+        this.paragraphState = savedParaState;
+
+        if (!this.isEOF() && this.match('groupEnd')) {
+          this.advance(); // consume }
+        }
+      } else if (token?.type === 'text') {
+        // Accumulate text with current formatting
+        const textNode = this.createTextNode(token.value || '');
+        currentParagraph.push(textNode);
+        this.advance();
+      } else {
+        this.advance(); // Skip unknown tokens
+      }
+    }
+
+    // Create final paragraph if there's content
+    if (currentParagraph.length > 0) {
+      doc.content.push(this.createParagraph(currentParagraph));
+    }
+  }
+
+  /**
+   * Parse content within a group
+   */
+  private parseContentGroup(): TextNode[] {
+    const nodes: TextNode[] = [];
+
+    while (!this.isEOF() && !this.match('groupEnd')) {
+      const token = this.peek();
+
+      if (token?.type === 'controlWord') {
+        const { name } = token;
+
+        if (this.isFormattingControlWord(name)) {
+          this.parseFormattingControlWord();
+        } else {
+          this.advance(); // Skip unknown control word
+        }
+      } else if (token?.type === 'groupStart') {
+        this.advance(); // consume {
+        this.pushFormatting();
+
+        const groupContent = this.parseContentGroup();
+        nodes.push(...groupContent);
+
+        this.popFormatting();
+
+        if (!this.isEOF() && this.match('groupEnd')) {
+          this.advance(); // consume }
+        }
+      } else if (token?.type === 'text') {
+        nodes.push(this.createTextNode(token.value || ''));
+        this.advance();
+      } else {
+        this.advance();
+      }
+    }
+
+    return nodes;
+  }
+
+  /**
+   * Create paragraph node
+   */
+  private createParagraph(content: TextNode[]): ParagraphNode {
+    const formatting: ParagraphFormatting = {};
+
+    if (this.paragraphState.alignment) {
+      formatting.alignment = this.paragraphState.alignment;
+    }
+    if (this.paragraphState.spaceBefore !== undefined) {
+      formatting.spaceBefore = this.paragraphState.spaceBefore;
+    }
+    if (this.paragraphState.spaceAfter !== undefined) {
+      formatting.spaceAfter = this.paragraphState.spaceAfter;
+    }
+    if (this.paragraphState.leftIndent !== undefined) {
+      formatting.leftIndent = this.paragraphState.leftIndent;
+    }
+    if (this.paragraphState.rightIndent !== undefined) {
+      formatting.rightIndent = this.paragraphState.rightIndent;
+    }
+    if (this.paragraphState.firstLineIndent !== undefined) {
+      formatting.firstLineIndent = this.paragraphState.firstLineIndent;
+    }
+
+    return {
+      type: 'paragraph',
+      content,
+      formatting,
+    };
+  }
+
+  /**
+   * Create text node with current formatting
+   */
+  private createTextNode(text: string): TextNode {
+    const formatting: CharacterFormatting = {};
+    const current = this.getCurrentFormatting();
+
+    if (current.bold) formatting.bold = true;
+    if (current.italic) formatting.italic = true;
+    if (current.underline) formatting.underline = true;
+    if (current.fontSize !== undefined) formatting.fontSize = current.fontSize;
+    if (current.font !== undefined) formatting.font = current.font;
+    if (current.foregroundColor !== undefined) {
+      formatting.foregroundColor = current.foregroundColor;
+    }
+    if (current.backgroundColor !== undefined) {
+      formatting.backgroundColor = current.backgroundColor;
+    }
+
+    return {
+      type: 'text',
+      content: text,
+      formatting,
+    };
+  }
+
+  /**
+   * Check if control word is header-related
+   */
+  private isHeaderControlWord(name: string): boolean {
+    return ['rtf', 'ansi', 'mac', 'pc', 'pca', 'deff'].includes(name);
+  }
+
+  /**
+   * Check if control word is formatting-related
+   */
+  private isFormattingControlWord(name: string): boolean {
+    return ['b', 'i', 'ul', 'fs', 'f', 'cf', 'cb', 'strike', 'scaps', 'sub', 'super'].includes(
+      name
+    );
+  }
+
+  /**
+   * Check if control word is paragraph-related
+   */
+  private isParagraphControlWord(name: string): boolean {
+    return ['qc', 'qr', 'ql', 'qj', 'sb', 'sa', 'li', 'ri', 'fi'].includes(name);
+  }
+
+  /**
+   * Parse header control word
+   */
+  private parseHeaderControlWord(doc: RTFDocument): void {
     const token = this.advance();
     if (!token || token.type !== 'controlWord') return;
 
@@ -119,36 +382,93 @@ class Parser {
       case 'deff':
         if (param !== null) doc.defaultFont = param;
         break;
-      // Additional control words will be handled in Phase 2
     }
   }
 
   /**
-   * Parse group (destination or formatting)
+   * Parse formatting control word
    */
-  private parseGroup(doc: RTFDocument): void {
-    this.expect('groupStart');
+  private parseFormattingControlWord(): void {
+    const token = this.advance();
+    if (!token || token.type !== 'controlWord') return;
 
-    // Check if this is a destination group
-    const token = this.peek();
-    if (token?.type === 'controlWord') {
-      const { name } = token;
+    const { name, param } = token;
+    const current = this.formattingStack[this.formattingStack.length - 1];
 
-      if (name === 'fonttbl') {
-        this.parseFontTable(doc);
-        return;
-      } else if (name === 'colortbl') {
-        this.parseColorTable(doc);
-        return;
-      }
+    switch (name) {
+      case 'b':
+        current.bold = param === null || param !== 0;
+        break;
+      case 'i':
+        current.italic = param === null || param !== 0;
+        break;
+      case 'ul':
+        current.underline = param === null || param !== 0;
+        break;
+      case 'fs':
+        current.fontSize = param !== null ? param : undefined;
+        break;
+      case 'f':
+        current.font = param !== null ? param : undefined;
+        break;
+      case 'cf':
+        current.foregroundColor = param !== null ? param : undefined;
+        break;
+      case 'cb':
+        current.backgroundColor = param !== null ? param : undefined;
+        break;
     }
+  }
 
-    // Skip other groups for now (will handle in later phases)
+  /**
+   * Parse paragraph control word
+   */
+  private parseParagraphControlWord(): void {
+    const token = this.advance();
+    if (!token || token.type !== 'controlWord') return;
+
+    const { name, param } = token;
+
+    switch (name) {
+      case 'qc':
+        this.paragraphState.alignment = 'center';
+        break;
+      case 'qr':
+        this.paragraphState.alignment = 'right';
+        break;
+      case 'ql':
+        this.paragraphState.alignment = 'left';
+        break;
+      case 'qj':
+        this.paragraphState.alignment = 'justify';
+        break;
+      case 'sb':
+        this.paragraphState.spaceBefore = param !== null ? param : undefined;
+        break;
+      case 'sa':
+        this.paragraphState.spaceAfter = param !== null ? param : undefined;
+        break;
+      case 'li':
+        this.paragraphState.leftIndent = param !== null ? param : undefined;
+        break;
+      case 'ri':
+        this.paragraphState.rightIndent = param !== null ? param : undefined;
+        break;
+      case 'fi':
+        this.paragraphState.firstLineIndent = param !== null ? param : undefined;
+        break;
+    }
+  }
+
+  /**
+   * Skip a group (for destination groups)
+   */
+  private skipGroup(): void {
     let depth = 1;
     while (!this.isEOF() && depth > 0) {
-      const t = this.advance();
-      if (t?.type === 'groupStart') depth++;
-      if (t?.type === 'groupEnd') depth--;
+      const token = this.advance();
+      if (token?.type === 'groupStart') depth++;
+      if (token?.type === 'groupEnd') depth--;
     }
   }
 
@@ -191,18 +511,15 @@ class Parser {
         if (name === 'f' && param !== null) {
           fontIndex = param;
         } else if (name?.startsWith('f') && name.length > 1) {
-          // Font family: fnil, froman, fswiss, fmodern, fscript, fdecor, ftech, fbidi
-          fontFamily = name.substring(1); // Remove 'f' prefix
+          fontFamily = name.substring(1);
         }
       } else if (token?.type === 'text') {
-        // Accumulate font name (ends with semicolon)
         fontName += token.value || '';
       }
     }
 
     this.expect('groupEnd');
 
-    // Clean up font name (remove trailing semicolon)
     fontName = fontName.replace(/;$/, '').trim();
 
     if (fontIndex !== null && fontName) {
@@ -222,7 +539,6 @@ class Parser {
   private parseColorTable(doc: RTFDocument): void {
     this.advance(); // Skip \colortbl
 
-    // First entry is always auto/default (empty)
     doc.colorTable.push({ r: 0, g: 0, b: 0 }); // Index 0
 
     let currentColor: Partial<RGBColor> = {};
@@ -241,7 +557,6 @@ class Parser {
           currentColor.b = param;
         }
       } else if (token?.type === 'text' && token.value === ';') {
-        // Semicolon marks end of color definition
         if (
           currentColor.r !== undefined &&
           currentColor.g !== undefined &&
@@ -253,7 +568,7 @@ class Parser {
       }
     }
 
-    this.expect('groupEnd'); // Close color table group
+    this.expect('groupEnd');
   }
 }
 
@@ -267,7 +582,7 @@ class Parser {
  * ```typescript
  * const doc = parseRTF('{\\rtf1\\ansi\\b Hello\\b0}');
  * console.log(doc.rtfVersion); // 1
- * console.log(doc.charset); // 'ansi'
+ * console.log(doc.content[0].type); // 'paragraph'
  * ```
  */
 export function parseRTF(rtf: string): RTFDocument {
