@@ -11,7 +11,7 @@ import type {
   TextNode,
   CharacterFormatting,
   ParagraphFormatting,
-} from './ast.js';
+} from './ast-simple.js';
 import { tokenize, Token } from './tokenizer.js';
 
 /**
@@ -225,7 +225,7 @@ class Parser {
         }
       } else if (token?.type === 'text') {
         // Accumulate text with current formatting
-        const textNode = this.createTextNode(token.value || '');
+        const textNode = this.createTextNode(String(token.value || ''));
         currentParagraph.push(textNode);
         this.advance();
       } else {
@@ -269,7 +269,7 @@ class Parser {
           this.advance(); // consume }
         }
       } else if (token?.type === 'text') {
-        nodes.push(this.createTextNode(token.value || ''));
+        nodes.push(this.createTextNode(String(token.value || '')));
         this.advance();
       } else {
         this.advance();

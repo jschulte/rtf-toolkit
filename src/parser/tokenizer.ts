@@ -28,7 +28,7 @@ export interface Token {
  * Scanner class for tokenizing RTF
  */
 class Scanner {
-  private pos = 0;
+  public pos = 0;
   private line = 1;
   private column = 1;
   private input: string;

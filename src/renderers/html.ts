@@ -10,7 +10,7 @@ import type {
   TextNode,
   CharacterFormatting,
   ParagraphFormatting,
-} from '../parser/ast.js';
+} from '../parser/ast-simple.js';
 
 /**
  * HTML rendering options
