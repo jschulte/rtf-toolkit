@@ -1,0 +1,76 @@
+{
+  "name": "@usmax/rtf-toolkit",
+  "version": "0.1.0",
+  "description": "Modern TypeScript RTF parser with track changes support - Full RTF 1.9.1 spec compliance",
+  "keywords": [
+    "rtf",
+    "rich-text-format",
+    "parser",
+    "converter",
+    "track-changes",
+    "html-to-rtf",
+    "rtf-to-html",
+    "document",
+    "wysiwyg",
+    "typescript"
+  ],
+  "author": "USmax",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "prepublishOnly": "npm run build && npm run test:run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.2.0",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
+    "@vitest/coverage-v8": "^1.2.0",
+    "eslint": "^8.56.0",
+    "prettier": "^3.2.4",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/usmax/rtf-toolkit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/usmax/rtf-toolkit/issues"
+  },
+  "homepage": "https://github.com/usmax/rtf-toolkit#readme"
+}
