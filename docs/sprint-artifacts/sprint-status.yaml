@@ -43,11 +43,14 @@ phases:
 epics:
   EPIC-1:
     title: "RTF Tokenizer/Lexer"
-    status: "not_started"
+    status: "ready-for-dev"
     assignee: "claude"
-    story_file: "docs/sprint-artifacts/EPIC-1-tokenizer.md"
+    story_file: "docs/epics/epic-1-tokenizer.md"
+    stories_total: 8
+    stories_completed: 0
     estimated_days: 2
     actual_days: 0
+    current_story: "Story 1.1 - Basic Control Word Recognition"
 
   EPIC-2:
     title: "RTF Parser & AST Builder"
