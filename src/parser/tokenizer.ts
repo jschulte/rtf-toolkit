@@ -155,14 +155,48 @@ export function tokenize(rtf: string): Token[] {
       }
       // TODO: Handle control symbols in Story 1.3
     } else if (char === '{') {
-      // TODO: Handle group start in Story 1.2
+      // Handle group start
+      const startPos = scanner.pos;
+      const position = scanner.getPosition();
       scanner.advance();
+      tokens.push({
+        type: 'groupStart',
+        pos: startPos,
+        position,
+      });
     } else if (char === '}') {
-      // TODO: Handle group end in Story 1.2
+      // Handle group end
+      const startPos = scanner.pos;
+      const position = scanner.getPosition();
       scanner.advance();
+      tokens.push({
+        type: 'groupEnd',
+        pos: startPos,
+        position,
+      });
     } else {
-      // TODO: Handle text in Story 1.6
-      scanner.advance();
+      // Accumulate text (basic implementation, will be enhanced in Story 1.6)
+      const startPos = scanner.pos;
+      const position = scanner.getPosition();
+      let text = '';
+
+      while (
+        !scanner.isEOF() &&
+        scanner.peek() !== '\\' &&
+        scanner.peek() !== '{' &&
+        scanner.peek() !== '}'
+      ) {
+        text += scanner.advance();
+      }
+
+      if (text.length > 0) {
+        tokens.push({
+          type: 'text',
+          value: text,
+          pos: startPos,
+          position,
+        });
+      }
     }
   }
 

@@ -97,3 +97,72 @@ describe('Story 1.1: Basic Control Word Recognition', () => {
     expect(tokens[1]).toMatchObject({ type: 'controlWord', name: 'i' });
   });
 });
+
+describe('Story 1.2: Group Delimiters', () => {
+  it('should recognize opening brace as groupStart', () => {
+    const tokens = tokenize('{');
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toMatchObject({
+      type: 'groupStart',
+    });
+  });
+
+  it('should recognize closing brace as groupEnd', () => {
+    const tokens = tokenize('}');
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toMatchObject({
+      type: 'groupEnd',
+    });
+  });
+
+  it('should tokenize simple RTF document with groups', () => {
+    const tokens = tokenize('{\\rtf1}');
+    expect(tokens).toHaveLength(3);
+    expect(tokens[0]).toMatchObject({ type: 'groupStart' });
+    expect(tokens[1]).toMatchObject({ type: 'controlWord', name: 'rtf', param: 1 });
+    expect(tokens[2]).toMatchObject({ type: 'groupEnd' });
+  });
+
+  it('should handle nested groups', () => {
+    const tokens = tokenize('{{}}');
+    expect(tokens).toHaveLength(4);
+    expect(tokens[0]).toMatchObject({ type: 'groupStart' });
+    expect(tokens[1]).toMatchObject({ type: 'groupStart' });
+    expect(tokens[2]).toMatchObject({ type: 'groupEnd' });
+    expect(tokens[3]).toMatchObject({ type: 'groupEnd' });
+  });
+
+  it('should handle multiple levels of nesting', () => {
+    const tokens = tokenize('{\\rtf1{\\b nested}}');
+    expect(tokens[0]).toMatchObject({ type: 'groupStart' });
+    expect(tokens[1]).toMatchObject({ type: 'controlWord', name: 'rtf' });
+    expect(tokens[2]).toMatchObject({ type: 'groupStart' });
+    expect(tokens[3]).toMatchObject({ type: 'controlWord', name: 'b' });
+    expect(tokens[5]).toMatchObject({ type: 'groupEnd' });
+    expect(tokens[6]).toMatchObject({ type: 'groupEnd' });
+  });
+
+  it('should track group positions', () => {
+    const tokens = tokenize('{test}');
+    expect(tokens[0]).toHaveProperty('pos', 0);
+    expect(tokens[1]).toHaveProperty('pos'); // text token
+    expect(tokens[2]).toHaveProperty('pos', 5);
+  });
+
+  it('should handle groups in complex documents', () => {
+    const tokens = tokenize('{\\rtf1\\ansi{\\b bold}}');
+    const groupStarts = tokens.filter((t) => t.type === 'groupStart');
+    const groupEnds = tokens.filter((t) => t.type === 'groupEnd');
+    expect(groupStarts).toHaveLength(2);
+    expect(groupEnds).toHaveLength(2);
+  });
+
+  it('should maintain proper group depth', () => {
+    const input = '{{{nested}}}';
+    const tokens = tokenize(input);
+    const starts = tokens.filter((t) => t.type === 'groupStart').length;
+    const ends = tokens.filter((t) => t.type === 'groupEnd').length;
+    expect(starts).toBe(3);
+    expect(ends).toBe(3);
+  });
+});
