@@ -27,7 +27,7 @@ export interface HTMLOptions {
 }
 
 /**
- * Escape HTML special characters
+ * Escape HTML special characters (enhanced for security)
  */
 function escapeHTML(text: string): string {
   return text
@@ -35,7 +35,29 @@ function escapeHTML(text: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+    .replace(/'/g, '&#039;')
+    .replace(/`/g, '&#96;'); // Security: Escape backticks to prevent attribute injection
+}
+
+/**
+ * Escape CSS values for safe inclusion in style attributes
+ */
+function escapeCSSValue(value: string): string {
+  // Remove potentially dangerous characters
+  return value
+    .replace(/[<>"'`]/g, '') // Remove HTML chars
+    .replace(/[^\w\s-]/g, '') // Allow only alphanumeric, space, hyphen
+    .trim();
+}
+
+/**
+ * Sanitize RGB color value to prevent CSS injection
+ */
+function sanitizeRGBValue(value: number): number {
+  if (typeof value !== 'number' || !isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(255, Math.floor(value)));
 }
 
 /**
@@ -51,18 +73,29 @@ function buildCharacterStyle(formatting: CharacterFormatting, doc: RTFDocument):
   }
 
   if (formatting.font !== undefined && doc.fontTable[formatting.font]) {
-    const fontName = doc.fontTable[formatting.font].name;
-    styles.push(`font-family: ${fontName}`);
+    // Security: Escape font name to prevent CSS injection
+    const fontName = escapeCSSValue(doc.fontTable[formatting.font].name);
+    if (fontName) {
+      styles.push(`font-family: "${fontName}"`); // Quote the font name
+    }
   }
 
   if (formatting.foregroundColor !== undefined && doc.colorTable[formatting.foregroundColor]) {
+    // Security: Sanitize RGB values to prevent CSS injection
     const color = doc.colorTable[formatting.foregroundColor];
-    styles.push(`color: rgb(${color.r}, ${color.g}, ${color.b})`);
+    const r = sanitizeRGBValue(color.r);
+    const g = sanitizeRGBValue(color.g);
+    const b = sanitizeRGBValue(color.b);
+    styles.push(`color: rgb(${r}, ${g}, ${b})`);
   }
 
   if (formatting.backgroundColor !== undefined && doc.colorTable[formatting.backgroundColor]) {
+    // Security: Sanitize RGB values to prevent CSS injection
     const color = doc.colorTable[formatting.backgroundColor];
-    styles.push(`background-color: rgb(${color.r}, ${color.g}, ${color.b})`);
+    const r = sanitizeRGBValue(color.r);
+    const g = sanitizeRGBValue(color.g);
+    const b = sanitizeRGBValue(color.b);
+    styles.push(`background-color: rgb(${r}, ${g}, ${b})`);
   }
 
   return styles.join('; ');

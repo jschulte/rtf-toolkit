@@ -17,6 +17,12 @@ import type {
 } from './ast-simple.js';
 import { tokenize, Token } from './tokenizer.js';
 
+// Security constants
+const MAX_GROUP_DEPTH = 100;
+const MAX_FONT_INDEX = 1000;
+const MAX_COLOR_INDEX = 1000;
+const MAX_AUTHOR_INDEX = 1000;
+
 /**
  * Formatting state for tracking character properties
  */
@@ -50,6 +56,7 @@ class Parser {
   private pos = 0;
   private formattingStack: FormattingState[] = [{}];
   private paragraphState: ParagraphState = {};
+  private groupDepth = 0; // Track nesting depth for DoS protection
 
   constructor(tokens: Token[]) {
     this.tokens = tokens;
@@ -192,60 +199,74 @@ class Parser {
         // Unknown control word - skip it
         this.advance();
       } else if (token?.type === 'groupStart') {
-        // Check if destination group
-        this.advance(); // consume {
-        const nextToken = this.peek();
-
-        // Check for ignorable destination ({\* ...})
-        if (nextToken?.type === 'text' && nextToken.value === '*') {
-          this.advance(); // Skip the * text token
-          const destToken = this.peek();
-          if (destToken?.type === 'controlWord' && destToken.name === 'revtbl') {
-            this.parseRevisionTable(doc);
-            continue;
-          }
-          // Other ignorable destinations - skip
-          this.skipGroup();
-          continue;
+        // Security: Check group depth to prevent DoS
+        this.groupDepth++;
+        if (this.groupDepth > MAX_GROUP_DEPTH) {
+          throw new Error(
+            `Maximum group nesting depth (${MAX_GROUP_DEPTH}) exceeded. ` +
+              `This may indicate a malicious or malformed RTF document.`
+          );
         }
 
-        if (nextToken?.type === 'controlWord') {
-          const { name } = nextToken;
+        try {
+          // Check if destination group
+          this.advance(); // consume {
+          const nextToken = this.peek();
 
-          if (name === 'fonttbl') {
-            this.parseFontTable(doc);
-            continue;
-          } else if (name === 'colortbl') {
-            this.parseColorTable(doc);
-            continue;
-          } else if (name === 'revised' || name === 'deleted') {
-            // Revision group - parse it
-            const revisionNode = this.parseRevisionGroup(name);
-            if (revisionNode) {
-              currentParagraph.push(revisionNode);
-              doc.hasRevisions = true;
+          // Check for ignorable destination ({\* ...})
+          if (nextToken?.type === 'text' && nextToken.value === '*') {
+            this.advance(); // Skip the * text token
+            const destToken = this.peek();
+            if (destToken?.type === 'controlWord' && destToken.name === 'revtbl') {
+              this.parseRevisionTable(doc);
+              continue;
             }
-            // Consume the closing brace
-            if (!this.isEOF() && this.match('groupEnd')) {
-              this.advance();
-            }
+            // Other ignorable destinations - skip
+            this.skipGroup();
             continue;
           }
-        }
 
-        // Regular formatting group - push state and parse content
-        this.pushFormatting();
-        const savedParaState = { ...this.paragraphState };
+          if (nextToken?.type === 'controlWord') {
+            const { name } = nextToken;
 
-        // Parse group content
-        const groupContent = this.parseContentGroup();
-        currentParagraph.push(...groupContent);
+            if (name === 'fonttbl') {
+              this.parseFontTable(doc);
+              continue;
+            } else if (name === 'colortbl') {
+              this.parseColorTable(doc);
+              continue;
+            } else if (name === 'revised' || name === 'deleted') {
+              // Revision group - parse it
+              const revisionNode = this.parseRevisionGroup(name);
+              if (revisionNode) {
+                currentParagraph.push(revisionNode);
+                doc.hasRevisions = true;
+              }
+              // Consume the closing brace
+              if (!this.isEOF() && this.match('groupEnd')) {
+                this.advance();
+              }
+              continue;
+            }
+          }
 
-        this.popFormatting();
-        this.paragraphState = savedParaState;
+          // Regular formatting group - push state and parse content
+          this.pushFormatting();
+          const savedParaState = { ...this.paragraphState };
 
-        if (!this.isEOF() && this.match('groupEnd')) {
-          this.advance(); // consume }
+          // Parse group content
+          const groupContent = this.parseContentGroup();
+          currentParagraph.push(...groupContent);
+
+          this.popFormatting();
+          this.paragraphState = savedParaState;
+
+          if (!this.isEOF() && this.match('groupEnd')) {
+            this.advance(); // consume }
+          }
+        } finally {
+          // Always decrement depth, even if error occurs
+          this.groupDepth--;
         }
       } else if (token?.type === 'text') {
         // Accumulate text with current formatting
@@ -281,16 +302,29 @@ class Parser {
           this.advance(); // Skip unknown control word
         }
       } else if (token?.type === 'groupStart') {
-        this.advance(); // consume {
-        this.pushFormatting();
+        // Security: Check group depth in nested groups
+        this.groupDepth++;
+        if (this.groupDepth > MAX_GROUP_DEPTH) {
+          throw new Error(
+            `Maximum group nesting depth (${MAX_GROUP_DEPTH}) exceeded. ` +
+              `This may indicate a malicious or malformed RTF document.`
+          );
+        }
 
-        const groupContent = this.parseContentGroup();
-        nodes.push(...groupContent);
+        try {
+          this.advance(); // consume {
+          this.pushFormatting();
 
-        this.popFormatting();
+          const groupContent = this.parseContentGroup();
+          nodes.push(...groupContent);
 
-        if (!this.isEOF() && this.match('groupEnd')) {
-          this.advance(); // consume }
+          this.popFormatting();
+
+          if (!this.isEOF() && this.match('groupEnd')) {
+            this.advance(); // consume }
+          }
+        } finally {
+          this.groupDepth--;
         }
       } else if (token?.type === 'text') {
         nodes.push(this.createTextNode(String(token.value || '')));
@@ -533,6 +567,13 @@ class Parser {
         const { name, param } = token;
 
         if (name === 'f' && param !== null) {
+          // Security: Validate font index to prevent prototype pollution
+          if (param < 0 || param >= MAX_FONT_INDEX) {
+            throw new Error(
+              `Font index ${param} out of valid range [0, ${MAX_FONT_INDEX}). ` +
+                `This may indicate a malicious document.`
+            );
+          }
           fontIndex = param;
         } else if (name?.startsWith('f') && name.length > 1) {
           fontFamily = name.substring(1);
@@ -567,18 +608,27 @@ class Parser {
 
     let currentColor: Partial<RGBColor> = {};
 
+    // Helper to sanitize RGB values
+    const sanitizeRGB = (value: number | null): number => {
+      if (value === null || typeof value !== 'number' || !isFinite(value)) {
+        return 0;
+      }
+      return Math.max(0, Math.min(255, Math.floor(value)));
+    };
+
     while (!this.isEOF() && !this.match('groupEnd')) {
       const token = this.advance();
 
       if (token?.type === 'controlWord') {
         const { name, param } = token;
 
-        if (name === 'red' && param !== null) {
-          currentColor.r = param;
-        } else if (name === 'green' && param !== null) {
-          currentColor.g = param;
-        } else if (name === 'blue' && param !== null) {
-          currentColor.b = param;
+        // Security: Sanitize RGB values to prevent CSS injection
+        if (name === 'red') {
+          currentColor.r = sanitizeRGB(param);
+        } else if (name === 'green') {
+          currentColor.g = sanitizeRGB(param);
+        } else if (name === 'blue') {
+          currentColor.b = sanitizeRGB(param);
         }
       } else if (token?.type === 'text' && token.value === ';') {
         if (
@@ -586,6 +636,13 @@ class Parser {
           currentColor.g !== undefined &&
           currentColor.b !== undefined
         ) {
+          // Security: Check color table size to prevent memory exhaustion
+          if (doc.colorTable.length >= MAX_COLOR_INDEX) {
+            throw new Error(
+              `Color table exceeds maximum size (${MAX_COLOR_INDEX}). ` +
+                `This may indicate a malicious document.`
+            );
+          }
           doc.colorTable.push(currentColor as RGBColor);
         }
         currentColor = {};
@@ -624,6 +681,13 @@ class Parser {
         authorName = authorName.replace(/;$/, '').trim();
 
         if (authorName) {
+          // Security: Check revision table size to prevent memory exhaustion
+          if (doc.revisionTable.length >= MAX_AUTHOR_INDEX) {
+            throw new Error(
+              `Revision table exceeds maximum size (${MAX_AUTHOR_INDEX}). ` +
+                `This may indicate a malicious document.`
+            );
+          }
           doc.revisionTable.push({
             index: authorIndex++,
             name: authorName,
@@ -711,6 +775,15 @@ class Parser {
  * ```
  */
 export function parseRTF(rtf: string): RTFDocument {
+  // Security: Validate input type
+  if (typeof rtf !== 'string') {
+    throw new TypeError('Input must be a string');
+  }
+
+  if (rtf.length === 0) {
+    throw new Error('Input RTF string cannot be empty');
+  }
+
   const tokens = tokenize(rtf);
   const parser = new Parser(tokens);
   return parser.parseDocument();

@@ -3,6 +3,12 @@
  * Performs lexical analysis on RTF string
  */
 
+// Security and performance constants
+const MAX_DOCUMENT_SIZE = 50 * 1024 * 1024; // 50MB
+const MAX_TEXT_CHUNK_SIZE = 1024 * 1024; // 1MB per text chunk
+const MAX_CONTROL_WORD_LENGTH = 32; // RTF spec limit
+const MAX_PARAM_DIGITS = 10; // Allows up to 9,999,999,999
+
 export type TokenType =
   | 'groupStart' // {
   | 'groupEnd' // }
@@ -35,6 +41,14 @@ class Scanner {
   private length: number;
 
   constructor(input: string) {
+    // Security: Validate document size
+    if (input.length > MAX_DOCUMENT_SIZE) {
+      throw new Error(
+        `Document size (${input.length} bytes) exceeds maximum allowed size ` +
+          `(${MAX_DOCUMENT_SIZE} bytes). This may indicate a malicious document.`
+      );
+    }
+
     this.input = input;
     this.length = input.length;
   }
@@ -92,28 +106,40 @@ class Scanner {
     const position = this.getPosition();
 
     // Extract control word name (alphabetic characters only)
-    let name = '';
+    const nameChars: string[] = [];
     while (!this.isEOF() && /[a-zA-Z]/.test(this.peek())) {
-      name += this.advance();
+      if (nameChars.length >= MAX_CONTROL_WORD_LENGTH) {
+        break; // Silently truncate to prevent ReDoS
+      }
+      nameChars.push(this.advance());
     }
+    const name = nameChars.join('');
 
     // Parse optional numeric parameter
     let param: number | null = null;
     if (!this.isEOF() && (this.peek() === '-' || /\d/.test(this.peek()))) {
-      let paramStr = '';
+      const paramChars: string[] = [];
 
       // Handle negative sign
       if (this.peek() === '-') {
-        paramStr += this.advance();
+        paramChars.push(this.advance());
       }
 
       // Collect digits
       while (!this.isEOF() && /\d/.test(this.peek())) {
-        paramStr += this.advance();
+        if (paramChars.length >= MAX_PARAM_DIGITS) {
+          break; // Prevent overflow
+        }
+        paramChars.push(this.advance());
       }
 
+      const paramStr = paramChars.join('');
       if (paramStr && paramStr !== '-') {
-        param = parseInt(paramStr, 10);
+        const parsed = parseInt(paramStr, 10);
+        // Validate it's a safe integer
+        if (Number.isSafeInteger(parsed)) {
+          param = parsed;
+        }
       }
     }
 
@@ -139,17 +165,18 @@ class Scanner {
     const position = this.getPosition();
 
     // Read two hex digits
-    let hexStr = '';
+    const hexChars: string[] = [];
     for (let i = 0; i < 2 && !this.isEOF(); i++) {
       const char = this.peek();
       if (/[0-9a-fA-F]/.test(char)) {
-        hexStr += this.advance();
+        hexChars.push(this.advance());
       } else {
         break;
       }
     }
 
     // Convert hex to character
+    const hexStr = hexChars.join('');
     const charCode = parseInt(hexStr, 16);
     const value = String.fromCharCode(charCode);
 
@@ -208,6 +235,11 @@ class Scanner {
  * @returns Array of tokens
  */
 export function tokenize(rtf: string): Token[] {
+  // Security: Validate input type
+  if (typeof rtf !== 'string') {
+    throw new TypeError('Input must be a string');
+  }
+
   const scanner = new Scanner(rtf);
   const tokens: Token[] = [];
 
@@ -282,10 +314,10 @@ export function tokenize(rtf: string): Token[] {
         position,
       });
     } else {
-      // Accumulate text (basic implementation, will be enhanced in Story 1.6)
+      // Accumulate text - Performance critical: use array for O(n) instead of O(n²)
       const startPos = scanner.pos;
       const position = scanner.getPosition();
-      let text = '';
+      const textChars: string[] = [];
 
       while (
         !scanner.isEOF() &&
@@ -293,13 +325,20 @@ export function tokenize(rtf: string): Token[] {
         scanner.peek() !== '{' &&
         scanner.peek() !== '}'
       ) {
-        text += scanner.advance();
+        // Security: Check text chunk size to prevent memory exhaustion
+        if (textChars.length >= MAX_TEXT_CHUNK_SIZE) {
+          throw new Error(
+            `Text chunk exceeds maximum size (${MAX_TEXT_CHUNK_SIZE} bytes). ` +
+              `This may indicate a malicious document.`
+          );
+        }
+        textChars.push(scanner.advance());
       }
 
-      if (text.length > 0) {
+      if (textChars.length > 0) {
         tokens.push({
           type: 'text',
-          value: text,
+          value: textChars.join(''),
           pos: startPos,
           position,
         });
