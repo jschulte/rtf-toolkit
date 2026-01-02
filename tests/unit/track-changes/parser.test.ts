@@ -5,7 +5,14 @@
 
 import { describe, it, expect } from 'vitest';
 import { parseRTF } from '../../../src/parser/parser.js';
-import { getTrackChanges, getTrackChangeMetadata } from '../../../src/track-changes/parser.js';
+import {
+  getTrackChanges,
+  getTrackChangeMetadata,
+  acceptChange,
+  rejectChange,
+  acceptAllChanges,
+  rejectAllChanges,
+} from '../../../src/track-changes/parser.js';
 
 describe('Epic 6 Phase 1: Revision Table Parsing', () => {
   it('should parse simple revision table', () => {
@@ -191,5 +198,299 @@ describe('Epic 6 Phase 3: Track Changes API', () => {
     expect(changes).toHaveLength(0);
     expect(metadata.totalChanges).toBe(0);
     expect(metadata.hasRevisions).toBe(false);
+  });
+});
+
+describe('Epic 6 Phase 4: Accept/Reject Single Changes', () => {
+  describe('acceptChange', () => {
+    it('should accept an insertion (keep inserted text)', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\revised\\revauth1 inserted} more.}';
+      const doc = parseRTF(rtf);
+      const changes = getTrackChanges(doc);
+
+      expect(changes).toHaveLength(1);
+      expect(changes[0].type).toBe('insertion');
+
+      const updatedDoc = acceptChange(doc, changes[0].id);
+      expect(updatedDoc).not.toBeNull();
+      const updatedChanges = getTrackChanges(updatedDoc!);
+
+      // No more changes after accepting
+      expect(updatedChanges).toHaveLength(0);
+      expect(updatedDoc!.hasRevisions).toBe(false);
+
+      // Text content should still exist (unwrapped from revision)
+      const para = updatedDoc!.content[0] as any;
+      const textNodes = para.content.filter((n: any) => n.type === 'text');
+      const fullText = textNodes.map((n: any) => n.content).join('');
+      expect(fullText).toContain('inserted');
+    });
+
+    it('should accept a deletion (remove deleted text)', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Before {\\deleted\\revauth1 removed} after.}';
+      const doc = parseRTF(rtf);
+      const changes = getTrackChanges(doc);
+
+      expect(changes).toHaveLength(1);
+      expect(changes[0].type).toBe('deletion');
+
+      const updatedDoc = acceptChange(doc, changes[0].id);
+      expect(updatedDoc).not.toBeNull();
+      const updatedChanges = getTrackChanges(updatedDoc!);
+
+      // No more changes after accepting
+      expect(updatedChanges).toHaveLength(0);
+      expect(updatedDoc!.hasRevisions).toBe(false);
+
+      // Deleted text should be gone
+      const para = updatedDoc!.content[0] as any;
+      const textNodes = para.content.filter((n: any) => n.type === 'text');
+      const fullText = textNodes.map((n: any) => n.content).join('');
+      expect(fullText).not.toContain('removed');
+      expect(fullText).toContain('Before');
+      expect(fullText).toContain('after');
+    });
+
+    it('should not modify original document (immutability)', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\revised\\revauth1 inserted} more.}';
+      const doc = parseRTF(rtf);
+
+      const changesBefore = getTrackChanges(doc);
+      const updatedDoc = acceptChange(doc, changesBefore[0].id);
+      expect(updatedDoc).not.toBeNull();
+      const changesAfter = getTrackChanges(doc);
+
+      // Original document should be unchanged
+      expect(changesAfter).toHaveLength(1);
+      expect(doc.hasRevisions).toBe(true);
+
+      // Updated document should have change accepted
+      expect(getTrackChanges(updatedDoc!)).toHaveLength(0);
+    });
+
+    it('should return null for invalid changeId', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\revised\\revauth1 inserted} more.}';
+      const doc = parseRTF(rtf);
+
+      const updatedDoc = acceptChange(doc, 'invalid-id');
+
+      // Should return null for invalid ID
+      expect(updatedDoc).toBeNull();
+    });
+
+    it('should handle multiple changes - accept one', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{A;}{B;}}Text {\\revised\\revauth1 first} and {\\deleted\\revauth2 second} end.}';
+      const doc = parseRTF(rtf);
+      const changes = getTrackChanges(doc);
+
+      expect(changes).toHaveLength(2);
+
+      // Accept first change only
+      const updatedDoc = acceptChange(doc, changes[0].id);
+      expect(updatedDoc).not.toBeNull();
+      const updatedChanges = getTrackChanges(updatedDoc!);
+
+      expect(updatedChanges).toHaveLength(1);
+      expect(updatedChanges[0].type).toBe('deletion'); // Second change should remain
+    });
+  });
+
+  describe('rejectChange', () => {
+    it('should reject an insertion (remove inserted text)', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\revised\\revauth1 inserted} more.}';
+      const doc = parseRTF(rtf);
+      const changes = getTrackChanges(doc);
+
+      expect(changes).toHaveLength(1);
+      expect(changes[0].type).toBe('insertion');
+
+      const updatedDoc = rejectChange(doc, changes[0].id);
+      expect(updatedDoc).not.toBeNull();
+      const updatedChanges = getTrackChanges(updatedDoc!);
+
+      // No more changes after rejecting
+      expect(updatedChanges).toHaveLength(0);
+      expect(updatedDoc!.hasRevisions).toBe(false);
+
+      // Inserted text should be gone
+      const para = updatedDoc!.content[0] as any;
+      const textNodes = para.content.filter((n: any) => n.type === 'text');
+      const fullText = textNodes.map((n: any) => n.content).join('');
+      expect(fullText).not.toContain('inserted');
+      expect(fullText).toContain('Text');
+      expect(fullText).toContain('more');
+    });
+
+    it('should reject a deletion (restore deleted text)', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Before {\\deleted\\revauth1 removed} after.}';
+      const doc = parseRTF(rtf);
+      const changes = getTrackChanges(doc);
+
+      expect(changes).toHaveLength(1);
+      expect(changes[0].type).toBe('deletion');
+
+      const updatedDoc = rejectChange(doc, changes[0].id);
+      expect(updatedDoc).not.toBeNull();
+      const updatedChanges = getTrackChanges(updatedDoc!);
+
+      // No more changes after rejecting
+      expect(updatedChanges).toHaveLength(0);
+      expect(updatedDoc!.hasRevisions).toBe(false);
+
+      // Deleted text should be restored (unwrapped)
+      const para = updatedDoc!.content[0] as any;
+      const textNodes = para.content.filter((n: any) => n.type === 'text');
+      const fullText = textNodes.map((n: any) => n.content).join('');
+      expect(fullText).toContain('removed');
+    });
+
+    it('should not modify original document (immutability)', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Before {\\deleted\\revauth1 removed} after.}';
+      const doc = parseRTF(rtf);
+
+      const changesBefore = getTrackChanges(doc);
+      const updatedDoc = rejectChange(doc, changesBefore[0].id);
+      expect(updatedDoc).not.toBeNull();
+      const changesAfter = getTrackChanges(doc);
+
+      // Original document should be unchanged
+      expect(changesAfter).toHaveLength(1);
+      expect(doc.hasRevisions).toBe(true);
+
+      // Updated document should have change rejected
+      expect(getTrackChanges(updatedDoc!)).toHaveLength(0);
+    });
+
+    it('should return null for invalid changeId', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\revised\\revauth1 inserted} more.}';
+      const doc = parseRTF(rtf);
+
+      const updatedDoc = rejectChange(doc, 'invalid-id');
+
+      // Should return null for invalid ID
+      expect(updatedDoc).toBeNull();
+    });
+  });
+});
+
+describe('Epic 6 Phase 5: Accept/Reject All Changes', () => {
+  describe('acceptAllChanges', () => {
+    it('should accept all changes in document', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{A;}{B;}}Start {\\revised\\revauth1 added} middle {\\deleted\\revauth2 removed} end.}';
+      const doc = parseRTF(rtf);
+      const changes = getTrackChanges(doc);
+
+      expect(changes).toHaveLength(2);
+
+      const updatedDoc = acceptAllChanges(doc);
+      const updatedChanges = getTrackChanges(updatedDoc);
+
+      expect(updatedChanges).toHaveLength(0);
+      expect(updatedDoc.hasRevisions).toBe(false);
+
+      // Check text: insertions kept, deletions removed
+      const para = updatedDoc.content[0] as any;
+      const textNodes = para.content.filter((n: any) => n.type === 'text');
+      const fullText = textNodes.map((n: any) => n.content).join('');
+      expect(fullText).toContain('added');
+      expect(fullText).not.toContain('removed');
+    });
+
+    it('should handle document with no changes', () => {
+      const rtf = '{\\rtf1 Plain text without changes}';
+      const doc = parseRTF(rtf);
+
+      const updatedDoc = acceptAllChanges(doc);
+
+      expect(getTrackChanges(updatedDoc)).toHaveLength(0);
+      expect(updatedDoc.hasRevisions).toBe(false);
+    });
+
+    it('should not modify original document (immutability)', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\revised\\revauth1 new} more.}';
+      const doc = parseRTF(rtf);
+
+      const updatedDoc = acceptAllChanges(doc);
+
+      // Original should be unchanged
+      expect(getTrackChanges(doc)).toHaveLength(1);
+      expect(doc.hasRevisions).toBe(true);
+
+      // Updated should have all changes accepted
+      expect(getTrackChanges(updatedDoc)).toHaveLength(0);
+    });
+
+    it('should preserve formatted text within revisions', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\revised\\revauth1\\b bold text\\b0} more.}';
+      const doc = parseRTF(rtf);
+
+      const updatedDoc = acceptAllChanges(doc);
+
+      // Formatted text should be preserved after accepting
+      const para = updatedDoc.content[0] as any;
+      const boldNode = para.content.find((n: any) => n.type === 'text' && n.formatting?.bold);
+      expect(boldNode).toBeDefined();
+      expect(boldNode.content).toBe('bold text');
+    });
+  });
+
+  describe('rejectAllChanges', () => {
+    it('should reject all changes in document', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{A;}{B;}}Start {\\revised\\revauth1 added} middle {\\deleted\\revauth2 removed} end.}';
+      const doc = parseRTF(rtf);
+      const changes = getTrackChanges(doc);
+
+      expect(changes).toHaveLength(2);
+
+      const updatedDoc = rejectAllChanges(doc);
+      const updatedChanges = getTrackChanges(updatedDoc);
+
+      expect(updatedChanges).toHaveLength(0);
+      expect(updatedDoc.hasRevisions).toBe(false);
+
+      // Check text: insertions removed, deletions restored
+      const para = updatedDoc.content[0] as any;
+      const textNodes = para.content.filter((n: any) => n.type === 'text');
+      const fullText = textNodes.map((n: any) => n.content).join('');
+      expect(fullText).not.toContain('added');
+      expect(fullText).toContain('removed');
+    });
+
+    it('should handle document with no changes', () => {
+      const rtf = '{\\rtf1 Plain text without changes}';
+      const doc = parseRTF(rtf);
+
+      const updatedDoc = rejectAllChanges(doc);
+
+      expect(getTrackChanges(updatedDoc)).toHaveLength(0);
+      expect(updatedDoc.hasRevisions).toBe(false);
+    });
+
+    it('should not modify original document (immutability)', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\revised\\revauth1 new} more.}';
+      const doc = parseRTF(rtf);
+
+      const updatedDoc = rejectAllChanges(doc);
+
+      // Original should be unchanged
+      expect(getTrackChanges(doc)).toHaveLength(1);
+      expect(doc.hasRevisions).toBe(true);
+
+      // Updated should have all changes rejected
+      expect(getTrackChanges(updatedDoc)).toHaveLength(0);
+    });
+
+    it('should restore formatted text from deletions', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\deleted\\revauth1\\i italic deleted\\i0} more.}';
+      const doc = parseRTF(rtf);
+
+      const updatedDoc = rejectAllChanges(doc);
+
+      // Formatted text should be restored after rejecting deletion
+      const para = updatedDoc.content[0] as any;
+      const italicNode = para.content.find((n: any) => n.type === 'text' && n.formatting?.italic);
+      expect(italicNode).toBeDefined();
+      expect(italicNode.content).toBe('italic deleted');
+    });
   });
 });

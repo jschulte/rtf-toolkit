@@ -25,7 +25,7 @@ export { parseRTF } from './parser/parser.js';
 
 // Renderers
 export { toHTML } from './renderers/html.js';
-export type { HTMLOptions } from './renderers/html.js';
+export type { HTMLOptions, TrackChangesOptions, TrackChangesMode } from './renderers/html.js';
 export { convertHTMLToRTF } from './renderers/rtf.js';
 
 // Track Changes API
@@ -35,5 +35,6 @@ export {
   acceptChange,
   rejectChange,
   acceptAllChanges,
+  rejectAllChanges,
 } from './track-changes/parser.js';
 export type { TrackChange, TrackChangeMetadata, TrackChangeOptions } from './track-changes/types.js';

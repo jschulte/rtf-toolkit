@@ -15,6 +15,62 @@ import type {
 } from '../parser/ast-simple.js';
 
 /**
+ * Track changes display mode
+ */
+export type TrackChangesMode = 'markup' | 'final' | 'original';
+
+/**
+ * Track changes styling options
+ */
+export interface TrackChangesOptions {
+  /**
+   * How to display track changes:
+   * - 'markup': Show changes with visual styling (insertions highlighted, deletions struck through)
+   * - 'final': Show document as if all changes were accepted
+   * - 'original': Show document as if all changes were rejected
+   * @default 'markup'
+   */
+  mode?: TrackChangesMode;
+
+  /**
+   * Background color for insertions (CSS color value)
+   * @default '#d4edda'
+   */
+  insertionColor?: string;
+
+  /**
+   * Background color for deletions (CSS color value)
+   * @default '#f8d7da'
+   */
+  deletionColor?: string;
+
+  /**
+   * Border color for insertions (CSS color value)
+   * @default '#28a745'
+   */
+  insertionBorderColor?: string;
+
+  /**
+   * Border color for deletions (CSS color value)
+   * @default '#dc3545'
+   */
+  deletionBorderColor?: string;
+
+  /**
+   * Include data attributes for author, timestamp, etc.
+   * Useful for building interactive UIs with tooltips
+   * @default true
+   */
+  includeDataAttributes?: boolean;
+
+  /**
+   * Include a title attribute with author and date for native tooltips
+   * @default false
+   */
+  includeTooltips?: boolean;
+}
+
+/**
  * HTML rendering options
  */
 export interface HTMLOptions {
@@ -24,6 +80,8 @@ export interface HTMLOptions {
   classPrefix?: string;
   /** Include document wrapper div */
   includeWrapper?: boolean;
+  /** Track changes display options */
+  trackChanges?: TrackChangesOptions;
 }
 
 /**
@@ -58,6 +116,83 @@ function sanitizeRGBValue(value: number): number {
     return 0;
   }
   return Math.max(0, Math.min(255, Math.floor(value)));
+}
+
+/**
+ * Safe named colors whitelist
+ */
+const SAFE_NAMED_COLORS = new Set([
+  'black', 'white', 'red', 'green', 'blue', 'yellow', 'orange', 'purple',
+  'pink', 'gray', 'grey', 'brown', 'cyan', 'magenta', 'transparent',
+  'aliceblue', 'antiquewhite', 'aqua', 'aquamarine', 'azure', 'beige',
+  'bisque', 'blanchedalmond', 'blueviolet', 'burlywood', 'cadetblue',
+  'chartreuse', 'chocolate', 'coral', 'cornflowerblue', 'cornsilk',
+  'crimson', 'darkblue', 'darkcyan', 'darkgoldenrod', 'darkgray',
+  'darkgreen', 'darkkhaki', 'darkmagenta', 'darkolivegreen', 'darkorange',
+  'darkorchid', 'darkred', 'darksalmon', 'darkseagreen', 'darkslateblue',
+  'darkslategray', 'darkturquoise', 'darkviolet', 'deeppink', 'deepskyblue',
+  'dimgray', 'dodgerblue', 'firebrick', 'floralwhite', 'forestgreen',
+  'fuchsia', 'gainsboro', 'ghostwhite', 'gold', 'goldenrod', 'greenyellow',
+  'honeydew', 'hotpink', 'indianred', 'indigo', 'ivory', 'khaki',
+  'lavender', 'lavenderblush', 'lawngreen', 'lemonchiffon', 'lightblue',
+  'lightcoral', 'lightcyan', 'lightgoldenrodyellow', 'lightgray', 'lightgreen',
+  'lightpink', 'lightsalmon', 'lightseagreen', 'lightskyblue', 'lightslategray',
+  'lightsteelblue', 'lightyellow', 'lime', 'limegreen', 'linen', 'maroon',
+  'mediumaquamarine', 'mediumblue', 'mediumorchid', 'mediumpurple',
+  'mediumseagreen', 'mediumslateblue', 'mediumspringgreen', 'mediumturquoise',
+  'mediumvioletred', 'midnightblue', 'mintcream', 'mistyrose', 'moccasin',
+  'navajowhite', 'navy', 'oldlace', 'olive', 'olivedrab', 'orangered',
+  'orchid', 'palegoldenrod', 'palegreen', 'paleturquoise', 'palevioletred',
+  'papayawhip', 'peachpuff', 'peru', 'plum', 'powderblue', 'rosybrown',
+  'royalblue', 'saddlebrown', 'salmon', 'sandybrown', 'seagreen', 'seashell',
+  'sienna', 'silver', 'skyblue', 'slateblue', 'slategray', 'snow',
+  'springgreen', 'steelblue', 'tan', 'teal', 'thistle', 'tomato',
+  'turquoise', 'violet', 'wheat', 'whitesmoke', 'yellowgreen',
+]);
+
+/**
+ * Sanitize CSS color value to prevent CSS injection attacks.
+ * Only allows safe color formats: hex, rgb(), rgba(), and named colors.
+ *
+ * @param color - User-provided color value
+ * @returns Sanitized color or 'transparent' if invalid
+ */
+function sanitizeCSSColor(color: string): string {
+  // Remove whitespace for consistent validation
+  const normalized = color.replace(/\s/g, '');
+
+  // Hex colors: #rgb, #rrggbb, #rrggbbaa
+  if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(normalized)) {
+    return normalized;
+  }
+
+  // RGB: rgb(r,g,b)
+  const rgbMatch = normalized.match(/^rgb\((\d{1,3}),(\d{1,3}),(\d{1,3})\)$/);
+  if (rgbMatch) {
+    const r = Math.min(255, parseInt(rgbMatch[1], 10));
+    const g = Math.min(255, parseInt(rgbMatch[2], 10));
+    const b = Math.min(255, parseInt(rgbMatch[3], 10));
+    return `rgb(${r},${g},${b})`;
+  }
+
+  // RGBA: rgba(r,g,b,a)
+  const rgbaMatch = normalized.match(/^rgba\((\d{1,3}),(\d{1,3}),(\d{1,3}),([\d.]+)\)$/);
+  if (rgbaMatch) {
+    const r = Math.min(255, parseInt(rgbaMatch[1], 10));
+    const g = Math.min(255, parseInt(rgbaMatch[2], 10));
+    const b = Math.min(255, parseInt(rgbaMatch[3], 10));
+    const a = Math.min(1, Math.max(0, parseFloat(rgbaMatch[4])));
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  // Named colors (whitelist)
+  const lowerColor = normalized.toLowerCase();
+  if (SAFE_NAMED_COLORS.has(lowerColor)) {
+    return lowerColor;
+  }
+
+  // Invalid color: return safe default
+  return 'transparent';
 }
 
 /**
@@ -140,13 +275,30 @@ function buildParagraphStyle(formatting: ParagraphFormatting): string {
 }
 
 /**
+ * Default track changes options
+ */
+const defaultTrackChangesOptions: Required<TrackChangesOptions> = {
+  mode: 'markup',
+  insertionColor: '#d4edda',
+  deletionColor: '#f8d7da',
+  insertionBorderColor: '#28a745',
+  deletionBorderColor: '#dc3545',
+  includeDataAttributes: true,
+  includeTooltips: false,
+};
+
+/**
  * Render inline node (text or revision)
  */
-function renderInlineNode(node: InlineNode, doc: RTFDocument): string {
+function renderInlineNode(
+  node: InlineNode,
+  doc: RTFDocument,
+  trackChangesOpts: Required<TrackChangesOptions>
+): string {
   if (node.type === 'text') {
     return renderTextNode(node, doc);
   } else if (node.type === 'revision') {
-    return renderRevisionNode(node, doc);
+    return renderRevisionNode(node, doc, trackChangesOpts);
   }
   return '';
 }
@@ -182,44 +334,94 @@ function renderTextNode(node: TextNode, doc: RTFDocument): string {
 /**
  * Render revision node with track changes visualization
  */
-function renderRevisionNode(node: RevisionNode, doc: RTFDocument): string {
-  // Render the content
-  const content = node.content.map((child) => renderInlineNode(child, doc)).join('');
+function renderRevisionNode(
+  node: RevisionNode,
+  doc: RTFDocument,
+  opts: Required<TrackChangesOptions>
+): string {
+  const isInsertion = node.revisionType === 'insertion';
+  const isDeletion = node.revisionType === 'deletion';
+
+  // Handle 'final' mode - show as if all changes were accepted
+  if (opts.mode === 'final') {
+    if (isDeletion) {
+      // Deletions are removed in final mode
+      return '';
+    }
+    // Insertions and formatting changes: render content without revision markup
+    return node.content.map((child) => renderInlineNode(child, doc, opts)).join('');
+  }
+
+  // Handle 'original' mode - show as if all changes were rejected
+  if (opts.mode === 'original') {
+    if (isInsertion) {
+      // Insertions are removed in original mode
+      return '';
+    }
+    // Deletions and formatting changes: render content without revision markup
+    return node.content.map((child) => renderInlineNode(child, doc, opts)).join('');
+  }
+
+  // 'markup' mode - show visual track changes
+  const content = node.content.map((child) => renderInlineNode(child, doc, opts)).join('');
 
   // Get author name
   const authorIndex = node.author !== undefined ? node.author : 0;
   const authorName =
     authorIndex < doc.revisionTable.length ? doc.revisionTable[authorIndex].name : 'Unknown';
 
-  // Build data attributes
-  const dataAttrs = [
-    `data-revision-type="${node.revisionType}"`,
-    `data-author="${escapeHTML(authorName)}"`,
-    `data-author-index="${authorIndex}"`,
-  ];
+  // Build attributes array
+  const attrs: string[] = [];
 
-  if (node.timestamp !== undefined) {
-    const date = new Date(node.timestamp * 60000);
-    dataAttrs.push(`data-timestamp="${date.toISOString()}"`);
+  // CSS class based on revision type
+  const cssClass = isInsertion ? 'rtf-revision-inserted' : 'rtf-revision-deleted';
+  attrs.push(`class="${cssClass}"`);
+
+  // Build style for visual distinction with customizable colors (sanitized to prevent CSS injection)
+  let style: string;
+  if (isInsertion) {
+    style = `background-color: ${sanitizeCSSColor(opts.insertionColor)}; border-bottom: 2px solid ${sanitizeCSSColor(opts.insertionBorderColor)};`;
+  } else {
+    style = `background-color: ${sanitizeCSSColor(opts.deletionColor)}; text-decoration: line-through; border-bottom: 2px solid ${sanitizeCSSColor(opts.deletionBorderColor)};`;
+  }
+  attrs.push(`style="${style}"`);
+
+  // Add data attributes if enabled
+  if (opts.includeDataAttributes) {
+    attrs.push(`data-revision-type="${node.revisionType}"`);
+    attrs.push(`data-author="${escapeHTML(authorName)}"`);
+    attrs.push(`data-author-index="${authorIndex}"`);
+
+    if (node.timestamp !== undefined) {
+      const date = new Date(node.timestamp * 60000);
+      attrs.push(`data-timestamp="${date.toISOString()}"`);
+    }
   }
 
-  // Apply CSS class based on revision type
-  const cssClass = node.revisionType === 'insertion' ? 'rtf-revision-inserted' : 'rtf-revision-deleted';
+  // Add tooltip if enabled
+  if (opts.includeTooltips) {
+    let tooltipText = `${isInsertion ? 'Inserted' : 'Deleted'} by ${authorName}`;
+    if (node.timestamp !== undefined) {
+      const date = new Date(node.timestamp * 60000);
+      tooltipText += ` on ${date.toLocaleDateString()} at ${date.toLocaleTimeString()}`;
+    }
+    attrs.push(`title="${escapeHTML(tooltipText)}"`);
+  }
 
-  // Build style for visual distinction
-  const style =
-    node.revisionType === 'insertion'
-      ? 'background-color: #d4edda; border-bottom: 2px solid #28a745;'
-      : 'background-color: #f8d7da; text-decoration: line-through; border-bottom: 2px solid #dc3545;';
-
-  return `<span class="${cssClass}" style="${style}" ${dataAttrs.join(' ')}>${content}</span>`;
+  return `<span ${attrs.join(' ')}>${content}</span>`;
 }
 
 /**
  * Render paragraph node
  */
-function renderParagraphNode(node: ParagraphNode, doc: RTFDocument): string {
-  const content = node.content.map((child) => renderInlineNode(child, doc)).join('');
+function renderParagraphNode(
+  node: ParagraphNode,
+  doc: RTFDocument,
+  trackChangesOpts: Required<TrackChangesOptions>
+): string {
+  const content = node.content
+    .map((child) => renderInlineNode(child, doc, trackChangesOpts))
+    .join('');
 
   const inlineStyle = buildParagraphStyle(node.formatting);
   const styleAttr = inlineStyle ? ` style="${inlineStyle}"` : '';
@@ -230,10 +432,14 @@ function renderParagraphNode(node: ParagraphNode, doc: RTFDocument): string {
 /**
  * Render RTF node to HTML
  */
-function renderNode(node: RTFNode, doc: RTFDocument): string {
+function renderNode(
+  node: RTFNode,
+  doc: RTFDocument,
+  trackChangesOpts: Required<TrackChangesOptions>
+): string {
   switch (node.type) {
     case 'paragraph':
-      return renderParagraphNode(node, doc);
+      return renderParagraphNode(node, doc, trackChangesOpts);
     case 'text':
       return renderTextNode(node, doc);
     default:
@@ -254,6 +460,26 @@ function renderNode(node: RTFNode, doc: RTFDocument): string {
  * const html = toHTML(doc);
  * console.log(html); // <div class="rtf-content"><p><strong>Bold text</strong></p></div>
  * ```
+ *
+ * @example Track changes modes
+ * ```typescript
+ * // Show visual markup (default)
+ * const markup = toHTML(doc, { trackChanges: { mode: 'markup' } });
+ *
+ * // Show final result (as if all changes accepted)
+ * const final = toHTML(doc, { trackChanges: { mode: 'final' } });
+ *
+ * // Show original (as if all changes rejected)
+ * const original = toHTML(doc, { trackChanges: { mode: 'original' } });
+ *
+ * // Custom colors
+ * const custom = toHTML(doc, {
+ *   trackChanges: {
+ *     insertionColor: '#e6ffe6',
+ *     deletionColor: '#ffe6e6'
+ *   }
+ * });
+ * ```
  */
 export function toHTML(doc: RTFDocument, options?: HTMLOptions): string {
   const opts: HTMLOptions = {
@@ -261,8 +487,22 @@ export function toHTML(doc: RTFDocument, options?: HTMLOptions): string {
     ...options,
   };
 
+  // Merge track changes options with defaults using nullish coalescing
+  // to properly handle explicitly passed undefined values
+  const trackChangesOpts: Required<TrackChangesOptions> = {
+    mode: opts.trackChanges?.mode ?? defaultTrackChangesOptions.mode,
+    insertionColor: opts.trackChanges?.insertionColor ?? defaultTrackChangesOptions.insertionColor,
+    deletionColor: opts.trackChanges?.deletionColor ?? defaultTrackChangesOptions.deletionColor,
+    insertionBorderColor: opts.trackChanges?.insertionBorderColor ?? defaultTrackChangesOptions.insertionBorderColor,
+    deletionBorderColor: opts.trackChanges?.deletionBorderColor ?? defaultTrackChangesOptions.deletionBorderColor,
+    includeDataAttributes: opts.trackChanges?.includeDataAttributes ?? defaultTrackChangesOptions.includeDataAttributes,
+    includeTooltips: opts.trackChanges?.includeTooltips ?? defaultTrackChangesOptions.includeTooltips,
+  };
+
   // Render all content nodes
-  const contentHTML = doc.content.map((node) => renderNode(node, doc)).join('\n');
+  const contentHTML = doc.content
+    .map((node) => renderNode(node, doc, trackChangesOpts))
+    .join('\n');
 
   // Wrap in container div if requested
   if (opts.includeWrapper) {

@@ -3,8 +3,20 @@
  * Extract and manipulate track changes from RTF documents
  */
 
-import type { RTFDocument, RTFNode, ParagraphNode, RevisionNode, InlineNode } from '../parser/ast-simple.js';
+import type { RTFDocument, RTFNode, ParagraphNode, RevisionNode, InlineNode, TextNode } from '../parser/ast-simple.js';
 import type { TrackChange, TrackChangeMetadata } from './types.js';
+
+/**
+ * Deep clone an RTF document for immutable operations
+ * @throws Error if document cannot be serialized (e.g., circular references)
+ */
+function cloneDocument(doc: RTFDocument): RTFDocument {
+  try {
+    return JSON.parse(JSON.stringify(doc));
+  } catch (error) {
+    throw new Error(`Failed to clone document: ${error instanceof Error ? error.message : 'unknown error'}`);
+  }
+}
 
 /**
  * Extract text content from inline nodes
@@ -20,6 +32,85 @@ function extractText(nodes: InlineNode[]): string {
       return '';
     })
     .join('');
+}
+
+/**
+ * Find a revision node by change ID and return its location
+ * Returns null if not found
+ */
+function findRevisionById(
+  doc: RTFDocument,
+  changeId: string
+): { paragraphIndex: number; inlineIndex: number; revisionNode: RevisionNode } | null {
+  let changeIdCounter = 0;
+
+  for (let paragraphIndex = 0; paragraphIndex < doc.content.length; paragraphIndex++) {
+    const node = doc.content[paragraphIndex];
+    if (node.type === 'paragraph') {
+      const paragraph = node as ParagraphNode;
+      for (let inlineIndex = 0; inlineIndex < paragraph.content.length; inlineIndex++) {
+        const inlineNode = paragraph.content[inlineIndex];
+        if (inlineNode.type === 'revision') {
+          const currentId = `change-${changeIdCounter++}`;
+          if (currentId === changeId) {
+            return { paragraphIndex, inlineIndex, revisionNode: inlineNode as RevisionNode };
+          }
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Process a paragraph's inline content to handle a revision change
+ * @param content - The paragraph's inline content array
+ * @param inlineIndex - Index of the revision node to process
+ * @param action - 'unwrap' to keep content, 'remove' to delete the node
+ * @returns New array of inline nodes
+ */
+function processRevisionInParagraph(
+  content: InlineNode[],
+  inlineIndex: number,
+  action: 'unwrap' | 'remove'
+): InlineNode[] {
+  const newContent: InlineNode[] = [];
+
+  for (let i = 0; i < content.length; i++) {
+    if (i === inlineIndex) {
+      if (action === 'unwrap') {
+        // Unwrap: insert the revision's content in place of the revision node
+        const revisionNode = content[i] as RevisionNode;
+        newContent.push(...revisionNode.content);
+      }
+      // For 'remove', we simply don't add anything
+    } else {
+      newContent.push(content[i]);
+    }
+  }
+
+  return newContent;
+}
+
+/**
+ * Update document metadata after modifying revisions
+ */
+function updateDocumentMetadata(doc: RTFDocument): void {
+  // Check if any revisions remain
+  let hasRevisions = false;
+  for (const node of doc.content) {
+    if (node.type === 'paragraph') {
+      for (const inlineNode of (node as ParagraphNode).content) {
+        if (inlineNode.type === 'revision') {
+          hasRevisions = true;
+          break;
+        }
+      }
+    }
+    if (hasRevisions) break;
+  }
+  doc.hasRevisions = hasRevisions;
 }
 
 /**
@@ -113,39 +204,169 @@ export function getTrackChangeMetadata(doc: RTFDocument): TrackChangeMetadata {
 /**
  * Accept a tracked change (apply the change to the document)
  *
+ * For insertions: The inserted text becomes permanent (revision markup removed, content kept)
+ * For deletions: The deleted text is permanently removed (entire revision node removed)
+ *
  * @param doc - RTF document
  * @param changeId - ID of the change to accept
- * @returns Modified document
+ * @returns Modified document (new instance, original unchanged), or null if changeId not found
+ *
+ * @example
+ * ```typescript
+ * const changes = getTrackChanges(doc);
+ * const updatedDoc = acceptChange(doc, changes[0].id);
+ * if (updatedDoc) {
+ *   // Change was accepted
+ * }
+ * ```
  */
-export function acceptChange(doc: RTFDocument, changeId: string): RTFDocument {
-  // TODO: Implement accept logic
-  // For insertions: remove revision markup, keep content
-  // For deletions: remove entire revision node
-  return doc;
+export function acceptChange(doc: RTFDocument, changeId: string): RTFDocument | null {
+  const location = findRevisionById(doc, changeId);
+  if (!location) {
+    // Change not found
+    return null;
+  }
+
+  const newDoc = cloneDocument(doc);
+  const paragraph = newDoc.content[location.paragraphIndex] as ParagraphNode;
+  const revisionNode = paragraph.content[location.inlineIndex] as RevisionNode;
+
+  // For insertions: unwrap (keep content, remove revision markup)
+  // For deletions: remove (delete the entire node)
+  const action = revisionNode.revisionType === 'deletion' ? 'remove' : 'unwrap';
+  paragraph.content = processRevisionInParagraph(paragraph.content, location.inlineIndex, action);
+
+  updateDocumentMetadata(newDoc);
+  return newDoc;
 }
 
 /**
- * Reject a tracked change (remove the change from the document)
+ * Reject a tracked change (undo the change from the document)
+ *
+ * For insertions: The inserted text is removed (entire revision node deleted)
+ * For deletions: The deleted text is restored (revision markup removed, content kept)
  *
  * @param doc - RTF document
  * @param changeId - ID of the change to reject
- * @returns Modified document
+ * @returns Modified document (new instance, original unchanged), or null if changeId not found
+ *
+ * @example
+ * ```typescript
+ * const changes = getTrackChanges(doc);
+ * const updatedDoc = rejectChange(doc, changes[0].id);
+ * if (updatedDoc) {
+ *   // Change was rejected
+ * }
+ * ```
  */
-export function rejectChange(doc: RTFDocument, changeId: string): RTFDocument {
-  // TODO: Implement reject logic
-  // For insertions: remove entire revision node
-  // For deletions: remove revision markup, keep content
-  return doc;
+export function rejectChange(doc: RTFDocument, changeId: string): RTFDocument | null {
+  const location = findRevisionById(doc, changeId);
+  if (!location) {
+    // Change not found
+    return null;
+  }
+
+  const newDoc = cloneDocument(doc);
+  const paragraph = newDoc.content[location.paragraphIndex] as ParagraphNode;
+  const revisionNode = paragraph.content[location.inlineIndex] as RevisionNode;
+
+  // For insertions: remove (delete the entire node - undo the insertion)
+  // For deletions: unwrap (keep content - undo the deletion, restore the text)
+  const action = revisionNode.revisionType === 'insertion' ? 'remove' : 'unwrap';
+  paragraph.content = processRevisionInParagraph(paragraph.content, location.inlineIndex, action);
+
+  updateDocumentMetadata(newDoc);
+  return newDoc;
 }
 
 /**
  * Accept all tracked changes in the document
  *
+ * Applies all changes: insertions become permanent text, deletions are removed.
+ *
  * @param doc - RTF document
- * @returns Modified document with all changes accepted
+ * @returns Modified document with all changes accepted (new instance, original unchanged)
+ *
+ * @example
+ * ```typescript
+ * const cleanDoc = acceptAllChanges(doc);
+ * console.log(getTrackChanges(cleanDoc).length); // 0
+ * ```
  */
 export function acceptAllChanges(doc: RTFDocument): RTFDocument {
-  // TODO: Implement accept all logic
-  // Walk through AST and remove all revision markup
-  return doc;
+  const newDoc = cloneDocument(doc);
+
+  // Process each paragraph
+  for (const node of newDoc.content) {
+    if (node.type === 'paragraph') {
+      const paragraph = node as ParagraphNode;
+      const newContent: InlineNode[] = [];
+
+      for (const inlineNode of paragraph.content) {
+        if (inlineNode.type === 'revision') {
+          const revisionNode = inlineNode as RevisionNode;
+          if (revisionNode.revisionType === 'deletion') {
+            // Accept deletion = remove the node entirely
+            // (don't add anything to newContent)
+          } else {
+            // Accept insertion/formatting = unwrap content
+            newContent.push(...revisionNode.content);
+          }
+        } else {
+          newContent.push(inlineNode);
+        }
+      }
+
+      paragraph.content = newContent;
+    }
+  }
+
+  newDoc.hasRevisions = false;
+  return newDoc;
+}
+
+/**
+ * Reject all tracked changes in the document
+ *
+ * Undoes all changes: insertions are removed, deletions are restored.
+ *
+ * @param doc - RTF document
+ * @returns Modified document with all changes rejected (new instance, original unchanged)
+ *
+ * @example
+ * ```typescript
+ * const originalDoc = rejectAllChanges(doc);
+ * console.log(getTrackChanges(originalDoc).length); // 0
+ * ```
+ */
+export function rejectAllChanges(doc: RTFDocument): RTFDocument {
+  const newDoc = cloneDocument(doc);
+
+  // Process each paragraph
+  for (const node of newDoc.content) {
+    if (node.type === 'paragraph') {
+      const paragraph = node as ParagraphNode;
+      const newContent: InlineNode[] = [];
+
+      for (const inlineNode of paragraph.content) {
+        if (inlineNode.type === 'revision') {
+          const revisionNode = inlineNode as RevisionNode;
+          if (revisionNode.revisionType === 'insertion') {
+            // Reject insertion = remove the node entirely
+            // (don't add anything to newContent)
+          } else {
+            // Reject deletion/formatting = unwrap content (restore deleted text)
+            newContent.push(...revisionNode.content);
+          }
+        } else {
+          newContent.push(inlineNode);
+        }
+      }
+
+      paragraph.content = newContent;
+    }
+  }
+
+  newDoc.hasRevisions = false;
+  return newDoc;
 }

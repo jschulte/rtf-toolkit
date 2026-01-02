@@ -144,3 +144,208 @@ describe('Epic 3: HTML Renderer - Basic', () => {
     expect(html).toContain('</div>');
   });
 });
+
+describe('Epic 3: HTML Renderer - Track Changes', () => {
+  describe('markup mode (default)', () => {
+    it('should render insertions with visual styling', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\revised\\revauth1 inserted} more.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc);
+
+      expect(html).toContain('class="rtf-revision-inserted"');
+      expect(html).toContain('inserted');
+      expect(html).toContain('background-color');
+    });
+
+    it('should render deletions with strikethrough styling', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\deleted\\revauth1 removed} more.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc);
+
+      expect(html).toContain('class="rtf-revision-deleted"');
+      expect(html).toContain('removed');
+      expect(html).toContain('text-decoration: line-through');
+    });
+
+    it('should include data attributes by default', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{John Doe;}}Text {\\revised\\revauth1 new} more.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc);
+
+      expect(html).toContain('data-revision-type="insertion"');
+      expect(html).toContain('data-author="John Doe"');
+      expect(html).toContain('data-author-index="1"');
+    });
+
+    it('should include timestamp data attribute when present', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\revised\\revauth1\\revdttm12345 new} more.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc);
+
+      expect(html).toContain('data-timestamp');
+    });
+  });
+
+  describe('final mode', () => {
+    it('should show insertions as normal text', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\revised\\revauth1 inserted} more.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc, { trackChanges: { mode: 'final' } });
+
+      expect(html).toContain('inserted');
+      expect(html).not.toContain('rtf-revision-inserted');
+      expect(html).not.toContain('data-revision-type');
+    });
+
+    it('should hide deletions completely', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\deleted\\revauth1 removed} more.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc, { trackChanges: { mode: 'final' } });
+
+      expect(html).not.toContain('removed');
+      expect(html).toContain('Text');
+      expect(html).toContain('more');
+    });
+
+    it('should show document as if all changes were accepted', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{A;}{B;}}Start {\\revised\\revauth1 added} middle {\\deleted\\revauth2 removed} end.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc, { trackChanges: { mode: 'final' } });
+
+      expect(html).toContain('added');
+      expect(html).not.toContain('removed');
+      expect(html).toContain('Start');
+      expect(html).toContain('middle');
+      expect(html).toContain('end');
+    });
+  });
+
+  describe('original mode', () => {
+    it('should hide insertions completely', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\revised\\revauth1 inserted} more.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc, { trackChanges: { mode: 'original' } });
+
+      expect(html).not.toContain('inserted');
+      expect(html).toContain('Text');
+      expect(html).toContain('more');
+    });
+
+    it('should show deletions as normal text', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\deleted\\revauth1 removed} more.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc, { trackChanges: { mode: 'original' } });
+
+      expect(html).toContain('removed');
+      expect(html).not.toContain('rtf-revision-deleted');
+      expect(html).not.toContain('data-revision-type');
+    });
+
+    it('should show document as if all changes were rejected', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{A;}{B;}}Start {\\revised\\revauth1 added} middle {\\deleted\\revauth2 removed} end.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc, { trackChanges: { mode: 'original' } });
+
+      expect(html).not.toContain('added');
+      expect(html).toContain('removed');
+      expect(html).toContain('Start');
+      expect(html).toContain('middle');
+      expect(html).toContain('end');
+    });
+  });
+
+  describe('custom colors', () => {
+    it('should use custom insertion colors', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\revised\\revauth1 inserted} more.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc, {
+        trackChanges: {
+          insertionColor: '#e6ffe6',
+          insertionBorderColor: '#00ff00',
+        },
+      });
+
+      expect(html).toContain('background-color: #e6ffe6');
+      expect(html).toContain('border-bottom: 2px solid #00ff00');
+    });
+
+    it('should use custom deletion colors', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\deleted\\revauth1 removed} more.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc, {
+        trackChanges: {
+          deletionColor: '#ffe6e6',
+          deletionBorderColor: '#ff0000',
+        },
+      });
+
+      expect(html).toContain('background-color: #ffe6e6');
+      expect(html).toContain('border-bottom: 2px solid #ff0000');
+    });
+  });
+
+  describe('data attributes option', () => {
+    it('should exclude data attributes when disabled', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\revised\\revauth1 inserted} more.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc, {
+        trackChanges: { includeDataAttributes: false },
+      });
+
+      expect(html).toContain('class="rtf-revision-inserted"');
+      expect(html).not.toContain('data-revision-type');
+      expect(html).not.toContain('data-author');
+    });
+  });
+
+  describe('tooltips option', () => {
+    it('should include title attribute when tooltips enabled', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{John Doe;}}Text {\\revised\\revauth1 inserted} more.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc, {
+        trackChanges: { includeTooltips: true },
+      });
+
+      expect(html).toContain('title="Inserted by John Doe');
+    });
+
+    it('should include timestamp in tooltip when present', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\revised\\revauth1\\revdttm12345 inserted} more.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc, {
+        trackChanges: { includeTooltips: true },
+      });
+
+      expect(html).toContain('title="Inserted by Author on');
+    });
+
+    it('should show Deleted in tooltip for deletions', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Jane Smith;}}Text {\\deleted\\revauth1 removed} more.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc, {
+        trackChanges: { includeTooltips: true },
+      });
+
+      expect(html).toContain('title="Deleted by Jane Smith');
+    });
+  });
+
+  describe('formatted text within revisions', () => {
+    it('should preserve bold formatting in insertions', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\revised\\revauth1\\b bold insert\\b0} more.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc);
+
+      expect(html).toContain('<strong>bold insert</strong>');
+      expect(html).toContain('rtf-revision-inserted');
+    });
+
+    it('should preserve formatting in final mode', () => {
+      const rtf = '{\\rtf1{\\*\\revtbl{Unknown;}{Author;}}Text {\\revised\\revauth1\\i italic text\\i0} more.}';
+      const doc = parseRTF(rtf);
+      const html = toHTML(doc, { trackChanges: { mode: 'final' } });
+
+      expect(html).toContain('<em>italic text</em>');
+    });
+  });
+});
