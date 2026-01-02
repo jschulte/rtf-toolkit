@@ -448,6 +448,64 @@ function renderNode(
 }
 
 /**
+ * Reconstruct placeholder tokens from escaped braces
+ * Merges sequences like { { fieldName } } back into {{fieldName}}
+ *
+ * Uses a multi-pass approach to progressively merge adjacent patterns
+ */
+function reconstructPlaceholders(html: string): string {
+  let result = html;
+  let previousResult = '';
+  let iterations = 0;
+  const maxIterations = 10;
+
+  // Keep iterating until no more changes occur (or max iterations reached)
+  while (result !== previousResult && iterations < maxIterations) {
+    previousResult = result;
+    iterations++;
+
+    // Pass 1: Merge {{fieldName}} that are already adjacent in text
+    result = result.replace(/\{\s*\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\s*\}/g, '{{$1}}');
+
+    // Pass 2: Merge { and { across simple tag boundaries
+    // Example: ></span>{<span></span>{<span> → ></span>{{<span>
+    result = result.replace(/>(\s*)\{(\s*)<\/([^>]+)>(\s*)<([^>]+)>(\s*)\{(\s*)</g, '>$1{{$7<');
+
+    // Pass 3: Merge fieldName and } across tag boundaries
+    // Example: >fieldName<\/span><span>}<\/span><span>}< → >fieldName}}<
+    result = result.replace(/>([a-zA-Z_][a-zA-Z0-9_]*)(\s*)<\/([^>]+)>(\s*)<([^>]+)>(\s*)\}(\s*)<\/([^>]+)>(\s*)<([^>]+)>(\s*)\}(\s*)</g,
+      '>$1}}$12<');
+
+    // Pass 4: Merge {{ and fieldName across tag boundaries
+    // Example: >\{\{<\/span><span>fieldName< → >\{\{fieldName<
+    result = result.replace(/>\{\{(\s*)<\/([^>]+)>(\s*)<([^>]+)>(\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*)</g, '>{{$6$7<');
+
+    // Pass 5: Simple merging within spans (no nested tags)
+    result = result.replace(
+      /(<span[^>]*>)\s*\{\s*(<\/span>\s*<span[^>]*>)\s*\{\s*(<\/span>\s*<span[^>]*>)\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(<\/span>\s*<span[^>]*>)\s*\}\s*(<\/span>\s*<span[^>]*>)\s*\}\s*(<\/span>)/g,
+      '$1{{$4}}$7'
+    );
+
+    // Pass 6: Merge across single span boundary
+    // Example: >{{</span><span>companyName}}< → >{{companyName}}<
+    result = result.replace(/>(\{\{)(\s*)<\/span>(\s*)<span[^>]*>(\s*)([a-zA-Z_][a-zA-Z0-9_]*\}\})/g, '>{{$5');
+    result = result.replace(/>(\{\{[a-zA-Z_][a-zA-Z0-9_]*)(\s*)<\/span>(\s*)<span[^>]*>(\s*)(\}\})/g, '>$1}}');
+
+    // Pass 7: Handle formatted braces (braces wrapped in <strong>, <em>, etc.)
+    // Example: ><strong>{</strong></span><span><strong>{</strong></span> → ><strong>{{</strong></span>
+    result = result.replace(/>(<(strong|em|u)>)\{(<\/\2>)(\s*)<\/span>(\s*)<span[^>]*>(\s*)(<\2>)\{(<\/\2>)/g, '>$1{{$3');
+    result = result.replace(/>(<(strong|em|u)>)\}(<\/\2>)(\s*)<\/span>(\s*)<span[^>]*>(\s*)(<\2>)\}(<\/\2>)/g, '>$1}}$3');
+
+    // Pass 8: Merge formatted fieldName with braces
+    // Example: ><strong>{{</strong></span><span><strong>fieldName</strong></span> → ><strong>{{fieldName</strong></span>
+    result = result.replace(/>(<(strong|em|u)>)\{\{(<\/\2>)(\s*)<\/span>(\s*)<span[^>]*>(\s*)(<\2>)([a-zA-Z_][a-zA-Z0-9_]*)(<\/\2>)/g, '>$1{{$8$3');
+    result = result.replace(/>(<(strong|em|u)>)([a-zA-Z_][a-zA-Z0-9_]*)\}\}(<\/\2>)(\s*)<\/span>(\s*)<span[^>]*>(\s*)(<\2>)([^<]*)(<\/\2>)/g, '>$1$3}}$4');
+  }
+
+  return result;
+}
+
+/**
  * Convert RTF document to HTML
  *
  * @param doc - RTF document AST
@@ -500,9 +558,12 @@ export function toHTML(doc: RTFDocument, options?: HTMLOptions): string {
   };
 
   // Render all content nodes
-  const contentHTML = doc.content
+  let contentHTML = doc.content
     .map((node) => renderNode(node, doc, trackChangesOpts))
     .join('\n');
+
+  // Reconstruct placeholder tokens (e.g., {{fieldName}}) from escaped braces
+  contentHTML = reconstructPlaceholders(contentHTML);
 
   // Wrap in container div if requested
   if (opts.includeWrapper) {

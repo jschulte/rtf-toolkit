@@ -94,6 +94,11 @@ export function convertHTMLToRTF(html: string): string {
     // Remove any remaining HTML tags
     .replace(/<[^>]+>/g, '')
 
+    // Escape curly braces for placeholder tokens (BEFORE processing HTML entities)
+    // This preserves {{fieldName}} patterns in templates
+    .replace(/\{/g, '\\{')
+    .replace(/\}/g, '\\}')
+
     // HTML entities
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
